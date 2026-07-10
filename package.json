@@ -6,6 +6,7 @@
     "dev": "NEXT_DIST_DIR=.next-codex next dev --webpack",
     "build": "next build --webpack",
     "build:codex": "NEXT_DIST_DIR=.next-codex next build --webpack",
+    "build:sites": "npm run build && SKIP_WRANGLER_CONFIG_CHECK=yes opennextjs-cloudflare build && node scripts/prepare-sites-open-next.mjs",
     "start": "NEXT_DIST_DIR=.next-codex next start",
     "test": "node --import tsx --test 'lib/**/*.test.ts'",
     "typecheck": "tsc --noEmit"
