@@ -1,10 +1,14 @@
 import { cp, mkdir, rename, rm, writeFile } from "node:fs/promises";
+import { execFile } from "node:child_process";
 import path from "node:path";
+import { promisify } from "node:util";
 
 const root = process.cwd();
 const openNextDir = path.join(root, ".open-next");
 const distDir = path.join(root, "dist");
 const serverDir = path.join(distDir, "server");
+const bundleDir = path.join(distDir, ".worker-bundle");
+const execFileAsync = promisify(execFile);
 
 await rm(distDir, { recursive: true, force: true });
 await mkdir(serverDir, { recursive: true });
@@ -51,3 +55,21 @@ await writeFile(
   `${JSON.stringify(wranglerConfig)}\n`,
   "utf8",
 );
+
+await rm(bundleDir, { recursive: true, force: true });
+await execFileAsync(
+  "npx",
+  ["wrangler", "deploy", "--config", "wrangler.json", "--dry-run", "--outdir", bundleDir],
+  { cwd: serverDir, maxBuffer: 1024 * 1024 * 20 },
+);
+
+await cp(path.join(bundleDir, "index.js"), path.join(serverDir, "index.js"));
+await rm(path.join(serverDir, "open-next-worker.js"), { force: true });
+await rm(path.join(serverDir, ".build"), { recursive: true, force: true });
+await rm(path.join(serverDir, "cache"), { recursive: true, force: true });
+await rm(path.join(serverDir, "cloudflare"), { recursive: true, force: true });
+await rm(path.join(serverDir, "cloudflare-templates"), { recursive: true, force: true });
+await rm(path.join(serverDir, "dynamodb-provider"), { recursive: true, force: true });
+await rm(path.join(serverDir, "middleware"), { recursive: true, force: true });
+await rm(path.join(serverDir, "server-functions"), { recursive: true, force: true });
+await rm(bundleDir, { recursive: true, force: true });
