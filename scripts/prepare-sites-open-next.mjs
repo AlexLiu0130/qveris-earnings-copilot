@@ -7,12 +7,15 @@ const root = process.cwd();
 const openNextDir = path.join(root, ".open-next");
 const distDir = path.join(root, "dist");
 const serverDir = path.join(distDir, "server");
+const clientDir = path.join(distDir, "client");
 const bundleDir = path.join(distDir, ".worker-bundle");
 const execFileAsync = promisify(execFile);
 
 await rm(distDir, { recursive: true, force: true });
 await mkdir(serverDir, { recursive: true });
 await cp(openNextDir, serverDir, { recursive: true });
+await mkdir(clientDir, { recursive: true });
+await cp(path.join(serverDir, "assets"), clientDir, { recursive: true });
 await rename(path.join(serverDir, "worker.js"), path.join(serverDir, "open-next-worker.js"));
 
 const workerWrapper = `export default {
@@ -22,14 +25,6 @@ const workerWrapper = `export default {
       return await worker.default.fetch(request, env, ctx);
     } catch (error) {
       console.error(error);
-      const url = new URL(request.url);
-      const message = error instanceof Error ? error.stack || error.message : String(error);
-      if (url.searchParams.get("__debug") === "1") {
-        return new Response(message, {
-          status: 500,
-          headers: { "content-type": "text/plain; charset=utf-8" },
-        });
-      }
       return new Response("Internal Server Error", {
         status: 500,
         headers: { "content-type": "text/plain; charset=utf-8" },
@@ -46,7 +41,7 @@ const wranglerConfig = {
   name: "qveris-earnings-copilot",
   compatibility_date: "2026-07-10",
   compatibility_flags: ["nodejs_compat", "global_fetch_strictly_public"],
-  assets: { directory: "assets", binding: "ASSETS" },
+  assets: { directory: "../client", binding: "ASSETS" },
   observability: { enabled: true },
 };
 

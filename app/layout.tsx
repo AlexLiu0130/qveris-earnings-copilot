@@ -24,7 +24,8 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className="min-h-screen antialiased">
         <header className="sticky top-0 z-40 border-b border-line bg-canvas/90 backdrop-blur">
           <div className="mx-auto flex min-h-14 max-w-6xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2 sm:h-14 sm:flex-nowrap sm:px-6 sm:py-0">
-            <Link href="/earnings" className="flex shrink-0 items-baseline gap-2">
+            <Link href="/" className="flex shrink-0 items-center gap-3">
+              <span className="grid h-9 w-9 place-items-center bg-accent font-mono text-sm font-bold text-white">Q</span>
               <span className="font-display text-xl italic text-ink">QVeris</span>
               <span className="label text-accent">Earnings</span>
             </Link>
