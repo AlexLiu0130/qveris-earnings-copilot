@@ -665,6 +665,63 @@ html[lang="zh-CN"] .home-hero-copy h1 em {
   font-variant-numeric: tabular-nums;
 }
 
+.brand-wordmark {
+  align-items: baseline;
+  display: flex;
+  flex-shrink: 0;
+  gap: 0.55rem;
+}
+
+.brand-wordmark span {
+  color: var(--color-ink);
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-style: italic;
+  line-height: 1;
+}
+
+.brand-wordmark b {
+  color: var(--color-ink-faint);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.github-star {
+  align-items: center;
+  border: 1px solid var(--color-line-strong);
+  border-radius: 7px;
+  color: var(--color-ink-soft);
+  display: inline-flex;
+  flex-shrink: 0;
+  font-family: var(--font-mono);
+  font-size: 0.68rem;
+  gap: 0.75rem;
+  height: 2.35rem;
+  letter-spacing: 0.08em;
+  padding: 0 0.8rem;
+  text-transform: uppercase;
+  transition: background-color 0.16s ease, border-color 0.16s ease, color 0.16s ease, transform 0.14s ease;
+}
+
+.github-star b {
+  color: var(--color-amber);
+  font-weight: 650;
+}
+
+.github-star:hover {
+  background: var(--color-amber-soft);
+  border-color: rgba(183, 121, 31, 0.42);
+  color: var(--color-ink);
+}
+
+.github-star:active {
+  transform: scale(0.97);
+}
+
 /* footnote-style source citation */
 .cite {
   font-family: var(--font-mono);
@@ -740,6 +797,28 @@ html[lang="zh-CN"] .home-hero-copy h1 em {
 }
 
 @media (max-width: 560px) {
+  .brand-wordmark {
+    gap: 0.42rem;
+  }
+
+  .brand-wordmark span {
+    font-size: 1.1rem;
+  }
+
+  .brand-wordmark b {
+    font-size: 0.55rem;
+    letter-spacing: 0.14em;
+  }
+
+  .github-star > span:first-child {
+    display: none;
+  }
+
+  .github-star {
+    height: 2rem;
+    padding-inline: 0.65rem;
+  }
+
   .home-shell {
     padding-inline: 0.9rem;
   }

@@ -24,10 +24,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <body className="min-h-screen antialiased">
         <header className="sticky top-0 z-40 border-b border-line bg-canvas/90 backdrop-blur">
           <div className="mx-auto flex min-h-14 max-w-6xl flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 py-2 sm:h-14 sm:flex-nowrap sm:px-6 sm:py-0">
-            <Link href="/" className="flex shrink-0 items-center gap-3">
-              <span className="grid h-9 w-9 place-items-center bg-accent font-mono text-sm font-bold text-white">Q</span>
-              <span className="font-display text-xl italic text-ink">QVeris</span>
-              <span className="label text-accent">Earnings</span>
+            <Link href="/" className="brand-wordmark">
+              <span>QVeris</span>
+              <b>Earnings</b>
             </Link>
             <nav className="order-3 flex w-full min-w-0 flex-wrap items-center justify-start gap-2 sm:order-none sm:w-auto sm:flex-nowrap sm:gap-4">
               {nav.map((item) => (
@@ -39,6 +38,18 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                   {item.label}
                 </Link>
               ))}
+              <a
+                href="https://github.com/AlexLiu0130"
+                target="_blank"
+                rel="noreferrer"
+                className="github-star"
+                aria-label="Open GitHub"
+              >
+                <span>GitHub</span>
+                <b>
+                  <span aria-hidden="true">★</span> Star
+                </b>
+              </a>
               <LanguageToggle lang={lang} />
             </nav>
           </div>
