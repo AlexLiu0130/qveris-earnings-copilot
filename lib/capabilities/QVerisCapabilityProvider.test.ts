@@ -369,6 +369,33 @@ test("event estimates and historical eps accept matching fiscal quarter identity
   assert.equal(results?.epsActual, 1.23);
 });
 
+test("optional segment failure does not discard core earnings results", async (t) => {
+  stubFetch(t, (_url, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
+    if (body.tool_id === "financialmodelingprep.stable.revenueproductsegmentation.retrieve.v1.8faa287f") {
+      return new Response("provider empty response", { status: 502 });
+    }
+    if (body.tool_id === "alphavantage.earnings.retrieve.v1.467a92c0") {
+      return jsonResponse({ success: true, result: { data: { quarterlyEarnings: [
+        { fiscalDateEnding: "2026-06-30", reportedDate: "2026-07-15", reportedEPS: "7.58", estimatedEPS: "7.98" },
+      ] } } });
+    }
+    if (body.tool_id === "financialmodelingprep.stable.incomestatement.retrieve.v1.dd6d583f") {
+      return jsonResponse({ success: true, result: { data: [
+        { date: "2026-06-30", fiscalYear: 2026, period: "Q2", revenue: 9_326_500_000 },
+      ] } });
+    }
+    return jsonResponse({ success: true, result: { data: [] } });
+  });
+
+  const event: EarningsEvent = { id: "ASML-2026-07-15", ticker: "ASML", fiscalPeriod: "Q2", fiscalYear: 2026, reportDate: "2026-07-15", timing: "unknown", status: "reported", sourceIds: ["calendar"] };
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
+  const results = await provider.getEarningsResults("ASML", event);
+
+  assert.equal(results?.revenueActual, 9_326_500_000);
+  assert.equal(results?.epsActual, 7.58);
+});
+
 test("calendar rejects malformed success payload instead of returning fake empty data", async (t) => {
   stubFetch(t, () => jsonResponse({
     success: true,

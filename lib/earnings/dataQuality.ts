@@ -3,6 +3,7 @@ import type {
   EarningsEvent,
   EarningsResults,
   FinancialStatementPeriod,
+  HistoricalEarnings,
   NewsItem,
 } from "@/lib/earnings/types";
 import type { Lang } from "@/lib/i18n/dict";
@@ -71,24 +72,42 @@ export function detectDataConflicts(input: {
   return conflicts;
 }
 
-export function resolveEventEstimates(event?: EarningsEvent | null, estimates?: EarningsEstimates | null) {
-  if (!event || (event.revenueEstimate == null && event.epsEstimate == null)) return estimates ?? null;
-  const providerIds = estimates?.sourceIds ?? [];
+export function resolveEventEstimates(
+  event?: EarningsEvent | null,
+  estimates?: EarningsEstimates | null,
+  history: HistoricalEarnings[] = [],
+) {
+  const historical = event
+    ? history.find((row) => row.reportDate === event.reportDate && (row.revenueEstimate != null || row.epsEstimate != null))
+    : undefined;
+  const resolved = estimates ?? (historical ? {
+    ticker: event!.ticker,
+    eventId: event!.id,
+    revenueEstimate: historical.revenueEstimate,
+    epsEstimate: historical.epsEstimate,
+    sourceIds: historical.sourceIds,
+    fieldSourceIds: {
+      revenueEstimate: historical.revenueEstimate != null ? historical.sourceIds : undefined,
+      epsEstimate: historical.epsEstimate != null ? historical.sourceIds : undefined,
+    },
+  } satisfies EarningsEstimates : null);
+  if (!event || (event.revenueEstimate == null && event.epsEstimate == null)) return resolved;
+  const providerIds = resolved?.sourceIds ?? [];
   return {
-    ...estimates,
+    ...resolved,
     ticker: event.ticker,
     eventId: event.id,
-    revenueEstimate: event.revenueEstimate ?? estimates?.revenueEstimate,
-    epsEstimate: event.epsEstimate ?? estimates?.epsEstimate,
+    revenueEstimate: event.revenueEstimate ?? resolved?.revenueEstimate,
+    epsEstimate: event.epsEstimate ?? resolved?.epsEstimate,
     sourceIds: [...new Set([...event.sourceIds, ...providerIds])],
     fieldSourceIds: {
       revenueEstimate: event.revenueEstimate != null
         ? event.sourceIds
-        : estimates?.fieldSourceIds?.revenueEstimate ?? providerIds,
+        : resolved?.fieldSourceIds?.revenueEstimate ?? providerIds,
       epsEstimate: event.epsEstimate != null
         ? event.sourceIds
-        : estimates?.fieldSourceIds?.epsEstimate ?? providerIds,
-      estimateCount: estimates?.fieldSourceIds?.estimateCount ?? providerIds,
+        : resolved?.fieldSourceIds?.epsEstimate ?? providerIds,
+      estimateCount: resolved?.fieldSourceIds?.estimateCount ?? providerIds,
     },
   } satisfies EarningsEstimates;
 }

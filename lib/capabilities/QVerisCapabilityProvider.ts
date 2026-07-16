@@ -176,8 +176,8 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
     const [history, financials, segments, transcript] = await Promise.all([
       this.getHistoricalEarnings(ticker, 8),
       this.getFinancialStatements(ticker, 4),
-      this.getRevenueSegments(ticker, 4),
-      this.getTranscriptEntries(ticker, event),
+      this.getRevenueSegments(ticker, 4).catch(() => []),
+      this.getTranscriptEntries(ticker, event).catch(() => ({ entries: [], executionId: undefined })),
     ]);
     const latest = selectHistoricalPeriod(history, event);
     const latestFinancials = selectFiscalPeriod(financials, event);

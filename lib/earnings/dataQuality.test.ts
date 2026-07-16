@@ -104,6 +104,30 @@ test("MU surprise uses the same-event calendar pair", () => {
   assert.deepEqual({ revenue: verdict.revenue, eps: verdict.eps }, { revenue: "beat", eps: "beat" });
 });
 
+test("same-event earnings history supplies a missing EPS estimate", () => {
+  const event = {
+    id: "ASML-2026-07-15",
+    ticker: "ASML",
+    fiscalPeriod: "Q2",
+    fiscalYear: 2026,
+    reportDate: "2026-07-15",
+    timing: "unknown" as const,
+    status: "reported" as const,
+    sourceIds: ["calendar"],
+  };
+  const estimates = resolveEventEstimates(event, null, [{
+    eventId: "ASML-earnings-2026-06-30",
+    fiscalPeriod: "2026-06-30",
+    reportDate: "2026-07-15",
+    epsActual: 7.58,
+    epsEstimate: 7.98,
+    sourceIds: ["history"],
+  }]);
+
+  assert.equal(estimates?.epsEstimate, 7.98);
+  assert.deepEqual(estimates?.fieldSourceIds?.epsEstimate, ["history"]);
+});
+
 test("small estimate rounding differences are not reported as conflicts", () => {
   const event = {
     id: "NVDA-2026-08-26",

@@ -84,7 +84,7 @@ export async function analyzeEarnings(
 
   if (!company && calendar.length === 0 && !quote && issues.length === 0) throw new Error("TICKER_NOT_FOUND");
 
-  const estimates = resolveEventEstimates(event, providerEstimates);
+  const estimates = resolveEventEstimates(event, providerEstimates, historicalPattern);
   const results = providerResults ? {
     ...providerResults,
     guidanceText: localizeGuidanceText(providerResults.guidanceText, language, event?.fiscalYear),
