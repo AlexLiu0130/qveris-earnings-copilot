@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { buildQuarterComparison } from "@/lib/earnings/quarterComparison";
+import { buildQuarterComparison, filterPointInTimeAnalyses } from "@/lib/earnings/quarterComparison";
 import type { EarningsAnalysis } from "@/lib/earnings/types";
 import { buildShareMarkdown } from "@/lib/share/shareCard";
 import { listAnalysesByTicker } from "@/lib/earnings/analysisStore";
@@ -52,8 +52,9 @@ export default async function TickerResearchPage({
     throw error;
   }
   const savedAnalyses = await listAnalysesByTicker(analysis.ticker, 12);
-  const quarterRows = buildQuarterComparison(savedAnalyses, 8);
-  const quarterSources = [...new Map(savedAnalyses.flatMap((item) => item.sources).map((source) => [source.id, source])).values()];
+  const comparisonAnalyses = filterPointInTimeAnalyses(savedAnalyses, analysis, analysisId);
+  const quarterRows = buildQuarterComparison(comparisonAnalyses, 8);
+  const quarterSources = [...new Map(comparisonAnalyses.flatMap((item) => item.sources).map((source) => [source.id, source])).values()];
 
   const markdown = buildShareMarkdown(analysis);
 

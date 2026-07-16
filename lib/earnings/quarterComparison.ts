@@ -80,6 +80,15 @@ export function buildQuarterComparison(analyses: EarningsAnalysis[], limit = 8):
     }) => row);
 }
 
+export function filterPointInTimeAnalyses(
+  analyses: EarningsAnalysis[],
+  target: Pick<EarningsAnalysis, "analysisId" | "generatedAt">,
+  explicitAnalysisId?: string,
+) {
+  if (explicitAnalysisId?.trim() !== target.analysisId) return analyses;
+  return analyses.filter((analysis) => analysis.generatedAt <= target.generatedAt);
+}
+
 function candidates(analysis: EarningsAnalysis): InternalRow[] {
   const event = analysis.event ?? analysis.recentEvent ?? analysis.upcomingEvent;
   const out: InternalRow[] = [];

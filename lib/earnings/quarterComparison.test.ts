@@ -3,7 +3,7 @@ import test from "node:test";
 import React from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MultiQuarterPanel } from "@/components/earnings/MultiQuarterPanel";
-import { buildQuarterComparison } from "@/lib/earnings/quarterComparison";
+import { buildQuarterComparison, filterPointInTimeAnalyses } from "@/lib/earnings/quarterComparison";
 import type { EarningsAnalysis } from "@/lib/earnings/types";
 
 test("dedupes matching quarters across snapshots with newer snapshot priority", () => {
@@ -24,6 +24,30 @@ test("dedupes matching quarters across snapshots with newer snapshot priority", 
   assert.equal(rows[0].analysisId, "new");
   assert.equal(rows[0].revenueActual, 110);
   assert.equal(rows[0].epsActual, 2.2);
+});
+
+test("filters future snapshots for explicit point-in-time analysis", () => {
+  const target = analysis("target", "2026-07-02T00:00:00.000Z");
+  const rows = filterPointInTimeAnalyses([
+    analysis("future", "2026-07-03T00:00:00.000Z"),
+    target,
+    analysis("same-time", "2026-07-02T00:00:00.000Z"),
+    analysis("past", "2026-07-01T00:00:00.000Z"),
+  ], target, " target ");
+
+  assert.deepEqual(rows.map((row) => row.analysisId), ["target", "same-time", "past"]);
+});
+
+test("keeps latest history when there is no resolved explicit analysis", () => {
+  const target = analysis("target", "2026-07-02T00:00:00.000Z");
+  const rows = [
+    analysis("future", "2026-07-03T00:00:00.000Z"),
+    target,
+    analysis("past", "2026-07-01T00:00:00.000Z"),
+  ];
+
+  assert.equal(filterPointInTimeAnalyses(rows, target), rows);
+  assert.equal(filterPointInTimeAnalyses(rows, target, "missing"), rows);
 });
 
 test("merges only explicit date or fiscal-period matches", () => {
