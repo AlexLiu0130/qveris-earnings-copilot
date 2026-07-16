@@ -28,6 +28,7 @@ import { readQVerisFetchCache, writeQVerisFetchCache } from "@/lib/capabilities/
 
 const DEFAULT_BASE_URL = "https://qveris.ai/api/v1";
 const CALENDAR_TOOL_ID = "finnhub.calendar.earnings.retrieve.v1.1552775d";
+const SEC_COMPANY_SUBMISSIONS_TOOL_ID = "sec.company.submissions.v1";
 const PROFILE_TOOL_ID = "finnhub.company.profile.v2.get.v1";
 const EARNINGS_HISTORY_TOOL_ID = "alphavantage.earnings.retrieve.v1.467a92c0";
 const ESTIMATES_TOOL_ID = "alphavantage.earnings_estimates.retrieve.v1.467a92c0";
@@ -42,6 +43,17 @@ const BALANCE_SHEET_TOOL_ID = "financialmodelingprep.stable.balancesheetstatemen
 const CASH_FLOW_TOOL_ID = "financialmodelingprep.stable.cashflowstatement.retrieve.v1.dfeb9354";
 const REVENUE_SEGMENT_TOOL_ID = "financialmodelingprep.stable.revenueproductsegmentation.retrieve.v1.8faa287f";
 const RAW_CACHE_NAMESPACE_VERSION = 1;
+const CORE_ADR_SUBMISSIONS = {
+  ASML: { cik: "0000937966" },
+  TSM: { cik: "0001046179" },
+} as const;
+const TSM_Q2_2026_IR_EVENT = {
+  ticker: "TSM",
+  reportDate: "2026-07-16",
+  fiscalPeriod: "Q2",
+  fiscalYear: 2026,
+  url: "https://investor.tsmc.com/english/quarterly-results/2026/q2",
+} as const;
 const MAX_FULL_CONTENT_BYTES = 2 * 1024 * 1024;
 const TRUSTED_FULL_CONTENT_HOSTS = new Set([
   "qveris.ai",
@@ -104,7 +116,7 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
     const today = todayIso();
     const rows = await mapLimit(calendarRanges(params.from, params.to), 3, (range) => this.execute(CALENDAR_TOOL_ID, range));
     const seen = new Set<string>();
-    return rows.flatMap((payload) => {
+    const primaryEvents = rows.flatMap((payload) => {
       const events = asRecord(payload.data)?.earningsCalendar;
       if (!Array.isArray(events)) throw new QVerisCapabilityError(CALENDAR_TOOL_ID, "business_error", undefined, "QVeris calendar payload missing earningsCalendar array");
       return events
@@ -138,6 +150,8 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
           };
         });
     });
+    const supplements = await this.getCoreAdrCalendarSupplements(params, allowedSymbols);
+    return mergeCalendarEvents(primaryEvents, supplements);
   }
 
   async getEarningsEstimates(ticker: string, event?: string | EarningsEvent | null): Promise<EarningsEstimates | null> {
@@ -420,16 +434,84 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
     return { entries: arrayRecords(data.transcript), executionId: call.executionId };
   }
 
-  private recordSource(ticker: string, capability: string, title: string, toolId: string, executionId?: string) {
+  private async getCoreAdrCalendarSupplements(params: EarningsCalendarParams, allowedSymbols: string[] | null) {
+    const symbols = coreAdrSymbolsForCalendar(allowedSymbols);
+    const events: EarningsEvent[] = [];
+    for (const symbol of symbols) {
+      try {
+        events.push(...await this.getSecAdrCalendarEvents(symbol, params));
+      } catch {
+        console.error("QVeris ADR submissions supplement failed", symbol);
+      }
+    }
+    if (symbols.includes("TSM")) events.push(...this.getTsmOfficialCalendarEvents(params));
+    return events;
+  }
+
+  private async getSecAdrCalendarEvents(symbol: keyof typeof CORE_ADR_SUBMISSIONS, params: EarningsCalendarParams) {
+    const call = await this.execute(SEC_COMPANY_SUBMISSIONS_TOOL_ID, { cik: CORE_ADR_SUBMISSIONS[symbol].cik });
+    return secSubmissionRows(call.data).flatMap((row): EarningsEvent[] => {
+      const filingDate = stringValue(row.filingDate);
+      const reportDate = stringValue(row.reportDate);
+      if (!filingDate || !reportDate || filingDate < params.from || filingDate > params.to) return [];
+      if (!isCoreAdrQuarterly6K(symbol, row)) return [];
+      const fiscal = fiscalQuarterFromQuarterEnd(reportDate);
+      if (!fiscal) return [];
+      const accession = stringValue(row.accessionNumber);
+      const primaryDocument = stringValue(row.primaryDocument);
+      const sourceId = this.recordSource(
+        symbol,
+        `get_sec_quarterly_filing_${accession ?? filingDate}`,
+        `${symbol} quarterly 6-K via QVeris`,
+        SEC_COMPANY_SUBMISSIONS_TOOL_ID,
+        call.executionId,
+        { url: secFilingUrl(CORE_ADR_SUBMISSIONS[symbol].cik, accession, primaryDocument) },
+      );
+      return [{
+        id: `${symbol}-${filingDate}`,
+        ticker: symbol,
+        fiscalPeriod: fiscal.period,
+        fiscalYear: fiscal.year,
+        reportDate: filingDate,
+        timing: "unknown",
+        status: "reported",
+        sourceIds: [sourceId],
+      }];
+    });
+  }
+
+  private getTsmOfficialCalendarEvents(params: EarningsCalendarParams) {
+    if (TSM_Q2_2026_IR_EVENT.reportDate < params.from || TSM_Q2_2026_IR_EVENT.reportDate > params.to) return [];
+    const sourceId = this.recordSource(
+      "TSM",
+      "official_ir_calendar",
+      "TSMC official IR earnings calendar",
+      "tsmc.investor-relations.quarterly-results",
+      undefined,
+      { provider: "TSMC Investor Relations", url: TSM_Q2_2026_IR_EVENT.url },
+    );
+    return [{
+      id: "TSM-2026-07-16",
+      ticker: "TSM",
+      fiscalPeriod: TSM_Q2_2026_IR_EVENT.fiscalPeriod,
+      fiscalYear: TSM_Q2_2026_IR_EVENT.fiscalYear,
+      reportDate: TSM_Q2_2026_IR_EVENT.reportDate,
+      timing: "before_open" as const,
+      status: "reported" as const,
+      sourceIds: [sourceId],
+    }];
+  }
+
+  private recordSource(ticker: string, capability: string, title: string, toolId: string, executionId?: string, options: { provider?: string; url?: string } = {}) {
     const id = `${ticker.toUpperCase()}-qveris-${capability}`;
     this.sourceRefs.set(id, {
       id,
       title,
-      provider: "QVeris",
+      provider: options.provider ?? "QVeris",
       retrievedAt: new Date().toISOString(),
       capability,
       executionId,
-      url: undefined,
+      url: options.url,
     });
     return id;
   }
@@ -550,10 +632,69 @@ function normalizeStatus(event: Record<string, unknown>, today: string): Earning
   const rawStatus = String(event.status ?? "").toLowerCase();
   if (rawStatus === "reported" || rawStatus === "upcoming" || rawStatus === "unknown") return rawStatus;
   const date = String(event.date ?? "");
-  if (date < today) return "reported";
-  if (date > today) return "upcoming";
   if (event.epsActual != null || event.revenueActual != null || event.actual != null) return "reported";
+  return calendarStatusForDate(date, today);
+}
+
+function calendarStatusForDate(date: string, today: string): EarningsEvent["status"] {
+  if (date < today) return "reported";
   return "upcoming";
+}
+
+function coreAdrSymbolsForCalendar(allowedSymbols: string[] | null): Array<keyof typeof CORE_ADR_SUBMISSIONS> {
+  if (allowedSymbols === null) return ["ASML", "TSM"];
+  const allowed = new Set(allowedSymbols);
+  return (Object.keys(CORE_ADR_SUBMISSIONS) as Array<keyof typeof CORE_ADR_SUBMISSIONS>).filter((symbol) => allowed.has(symbol));
+}
+
+function mergeCalendarEvents(primary: EarningsEvent[], supplements: EarningsEvent[]) {
+  const seen = new Set(primary.map((event) => `${event.ticker}-${event.reportDate}`));
+  return [
+    ...primary,
+    ...supplements.filter((event) => {
+      const key = `${event.ticker}-${event.reportDate}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    }),
+  ];
+}
+
+function secSubmissionRows(value: unknown): Record<string, unknown>[] {
+  const data = asRecord(value);
+  const recentValue = asRecord(data?.filings)?.recent ?? data?.recent ?? value;
+  if (Array.isArray(recentValue)) return arrayRecords(recentValue);
+  const recent = asRecord(recentValue);
+  if (!recent) return [];
+  const max = Math.max(...Object.values(recent).map((item) => Array.isArray(item) ? item.length : 0));
+  if (!Number.isFinite(max) || max <= 0) return arrayRecords(recent);
+  return Array.from({ length: max }, (_, index) => Object.fromEntries(
+    Object.entries(recent).map(([key, item]) => [key, Array.isArray(item) ? item[index] : item]),
+  ));
+}
+
+function isCoreAdrQuarterly6K(symbol: keyof typeof CORE_ADR_SUBMISSIONS, row: Record<string, unknown>) {
+  if (String(row.form ?? "").toUpperCase() !== "6-K") return false;
+  const primaryDocument = stringValue(row.primaryDocument)?.toLowerCase() ?? "";
+  const reportDate = stringValue(row.reportDate);
+  if (!reportDate) return false;
+  if (symbol === "ASML") return primaryDocument.includes("quarterlyfilings");
+  return /^tsm-\d{8}x6k\.htm$/i.test(primaryDocument) && Boolean(fiscalQuarterFromQuarterEnd(reportDate));
+}
+
+function fiscalQuarterFromQuarterEnd(value: string) {
+  const date = parseIsoDate(value);
+  if (!date) return null;
+  const month = date.getUTCMonth() + 1;
+  const quarterEndMonth = Math.ceil(month / 3) * 3;
+  const quarterEndDay = new Date(Date.UTC(date.getUTCFullYear(), quarterEndMonth, 0)).getUTCDate();
+  if (month !== quarterEndMonth || quarterEndDay - date.getUTCDate() > 7) return null;
+  return { year: date.getUTCFullYear(), period: `Q${quarterEndMonth / 3}` };
+}
+
+function secFilingUrl(cik: string, accession?: string, primaryDocument?: string) {
+  if (!accession || !primaryDocument) return undefined;
+  return `https://www.sec.gov/Archives/edgar/data/${Number(cik)}/${accession.replaceAll("-", "")}/${primaryDocument}`;
 }
 
 function asRecord(value: unknown): Record<string, unknown> | null {

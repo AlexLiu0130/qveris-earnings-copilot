@@ -90,6 +90,130 @@ test("calendar uses current QVeris tool and maps earningsCalendar rows", async (
   assert.equal(events[0].revenueEstimate, 456);
 });
 
+test("calendar supplements ASML quarterly 6-K from SEC submissions", async (t) => {
+  const calls = stubFetch(t, (_url, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
+    if (body.tool_id === "sec.company.submissions.v1") {
+      return jsonResponse({
+        success: true,
+        execution_id: "asml-submissions-exec",
+        result: { data: { filings: { recent: {
+          accessionNumber: ["0001628280-26-048200", "0001628280-26-048235"],
+          filingDate: ["2026-07-14", "2026-07-15"],
+          reportDate: ["2026-07-14", "2026-06-28"],
+          form: ["6-K", "6-K"],
+          primaryDocument: ["form6-kunrelated.htm", "form6-kquarterlyfilings.htm"],
+        } } } },
+      });
+    }
+    return jsonResponse({ success: true, execution_id: "calendar-exec", result: { data: { earningsCalendar: [] } } });
+  });
+
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
+  const events = await provider.getEarningsCalendar({ from: "2026-07-15", to: "2026-07-15", universe: "ASML" });
+
+  assert.equal(calls[1].body?.tool_id, "sec.company.submissions.v1");
+  assert.deepEqual(calls[1].body?.parameters, { cik: "0000937966" });
+  assert.equal(events.length, 1);
+  assert.deepEqual(events[0], {
+    id: "ASML-2026-07-15",
+    ticker: "ASML",
+    fiscalPeriod: "Q2",
+    fiscalYear: 2026,
+    reportDate: "2026-07-15",
+    timing: "unknown",
+    status: "reported",
+    sourceIds: ["ASML-qveris-get_sec_quarterly_filing_0001628280-26-048235"],
+  });
+  const source = provider.getSourceRefs().find((item) => item.id === events[0].sourceIds[0]);
+  assert.equal(source?.executionId, "asml-submissions-exec");
+  assert.equal(source?.url, "https://www.sec.gov/Archives/edgar/data/937966/000162828026048235/form6-kquarterlyfilings.htm");
+});
+
+test("calendar supplements TSM Q2 2026 from official IR when SEC 6-K is absent", async (t) => {
+  const calls = stubFetch(t, (_url, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
+    if (body.tool_id === "sec.company.submissions.v1") {
+      return jsonResponse({ success: true, execution_id: "tsm-submissions-exec", result: { data: { filings: { recent: {
+        filingDate: [],
+        reportDate: [],
+        form: [],
+        primaryDocument: [],
+      } } } } });
+    }
+    return jsonResponse({ success: true, execution_id: "calendar-exec", result: { data: { earningsCalendar: [] } } });
+  });
+
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
+  const events = await provider.getEarningsCalendar({ from: "2026-07-16", to: "2026-07-16", universe: "TSM" });
+  const source = provider.getSourceRefs().find((item) => item.id === events[0]?.sourceIds[0]);
+
+  assert.equal(calls[1].body?.tool_id, "sec.company.submissions.v1");
+  assert.equal(events.length, 1);
+  assert.equal(events[0].ticker, "TSM");
+  assert.equal(events[0].reportDate, "2026-07-16");
+  assert.equal(events[0].fiscalPeriod, "Q2");
+  assert.equal(events[0].fiscalYear, 2026);
+  assert.equal(events[0].timing, "before_open");
+  assert.equal(events[0].status, "reported");
+  assert.equal(events[0].epsActual, undefined);
+  assert.equal(events[0].revenueActual, undefined);
+  assert.equal(source?.provider, "TSMC Investor Relations");
+  assert.equal(source?.url, "https://investor.tsmc.com/english/quarterly-results/2026/q2");
+});
+
+test("calendar keeps Finnhub event when ADR supplement has the same ticker and date", async (t) => {
+  const calls = stubFetch(t, (_url, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
+    if (body.tool_id === "sec.company.submissions.v1") {
+      return jsonResponse({
+        success: true,
+        execution_id: "asml-submissions-exec",
+        result: { data: { filings: { recent: {
+          filingDate: ["2026-07-15"],
+          accessionNumber: ["0001628280-26-048235"],
+          reportDate: ["2026-06-28"],
+          form: ["6-K"],
+          primaryDocument: ["asml-20260715-quarterlyfilings.htm"],
+        } } } },
+      });
+    }
+    return jsonResponse({
+      success: true,
+      execution_id: "calendar-exec",
+      result: { data: { earningsCalendar: [{
+        symbol: "ASML",
+        date: "2026-07-15",
+        hour: "bmo",
+        quarter: 2,
+        year: 2026,
+        epsActual: 1.2,
+        revenueActual: 10,
+      }] } },
+    });
+  });
+
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
+  const events = await provider.getEarningsCalendar({ from: "2026-07-15", to: "2026-07-15", universe: "ASML" });
+
+  assert.equal(calls.length, 2);
+  assert.equal(events.length, 1);
+  assert.equal(events[0].epsActual, 1.2);
+  assert.equal(events[0].revenueActual, 10);
+  assert.deepEqual(events[0].sourceIds, ["ASML-qveris-get_earnings_calendar"]);
+});
+
+test("calendar does not call ADR supplements for a custom universe without ASML or TSM", async (t) => {
+  const calls = stubFetch(t, () => jsonResponse({ success: true, execution_id: "calendar-exec", result: { data: { earningsCalendar: [] } } }));
+
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
+  const events = await provider.getEarningsCalendar({ from: "2026-07-15", to: "2026-07-16", universe: "MU" });
+
+  assert.deepEqual(events, []);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body?.tool_id, "finnhub.calendar.earnings.retrieve.v1.1552775d");
+});
+
 test("calendar chunks long ranges with bounded concurrency and keeps early MU event", async (t) => {
   let active = 0;
   let maxActive = 0;
