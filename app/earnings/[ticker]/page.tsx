@@ -1,9 +1,9 @@
 import Link from "next/link";
-import { analyzeEarnings } from "@/lib/earnings/analyzeEarnings";
 import { buildQuarterComparison } from "@/lib/earnings/quarterComparison";
 import type { EarningsAnalysis } from "@/lib/earnings/types";
 import { buildShareMarkdown } from "@/lib/share/shareCard";
-import { listAnalysesByTicker, saveAnalysis } from "@/lib/earnings/analysisStore";
+import { listAnalysesByTicker } from "@/lib/earnings/analysisStore";
+import { resolveAnalysis } from "@/lib/earnings/resolveAnalysis";
 import type { Dict } from "@/lib/i18n/dict";
 import { getDict } from "@/lib/i18n/server";
 import { CallIntelligencePanel } from "@/components/earnings/CallIntelligencePanel";
@@ -21,11 +21,15 @@ export const dynamic = "force-dynamic";
 
 export default async function TickerResearchPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ ticker: string }>;
+  searchParams: Promise<{ analysisId?: string | string[] }>;
 }) {
   const { ticker } = await params;
+  const query = await searchParams;
   const { lang, t } = await getDict();
+  const analysisId = Array.isArray(query.analysisId) ? query.analysisId[0] : query.analysisId;
 
   const request = {
     ticker: decodeURIComponent(ticker),
@@ -39,7 +43,7 @@ export default async function TickerResearchPage({
   };
   let analysis;
   try {
-    analysis = await analyzeEarnings(request);
+    analysis = await resolveAnalysis(request, analysisId);
   } catch (error) {
     const message = error instanceof Error ? error.message : "UNKNOWN_ERROR";
     if (message === "INVALID_TICKER" || message === "TICKER_NOT_FOUND") {
@@ -47,7 +51,6 @@ export default async function TickerResearchPage({
     }
     throw error;
   }
-  await saveAnalysis(request, analysis);
   const savedAnalyses = await listAnalysesByTicker(analysis.ticker, 12);
   const quarterRows = buildQuarterComparison(savedAnalyses, 8);
   const quarterSources = [...new Map(savedAnalyses.flatMap((item) => item.sources).map((source) => [source.id, source])).values()];
