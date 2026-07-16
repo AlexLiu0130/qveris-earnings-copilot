@@ -1,0 +1,685 @@
+{
+  "version": "6",
+  "dialect": "sqlite",
+  "id": "da45b108-2025-4672-8134-96fe8a27df01",
+  "prevId": "00000000-0000-0000-0000-000000000000",
+  "tables": {
+    "earnings_events": {
+      "name": "earnings_events",
+      "columns": {
+        "event_id": {
+          "name": "event_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "canonical_key": {
+          "name": "canonical_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ticker": {
+          "name": "ticker",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fiscal_year": {
+          "name": "fiscal_year",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fiscal_period": {
+          "name": "fiscal_period",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "report_date": {
+          "name": "report_date",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "timing": {
+          "name": "timing",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "status": {
+          "name": "status",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "event_version": {
+          "name": "event_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "data_as_of": {
+          "name": "data_as_of",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "first_seen_at": {
+          "name": "first_seen_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "last_seen_at": {
+          "name": "last_seen_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "earnings_events_canonical_version_uq": {
+          "name": "earnings_events_canonical_version_uq",
+          "columns": [
+            "canonical_key",
+            "event_version"
+          ],
+          "isUnique": true
+        },
+        "earnings_events_canonical_key_idx": {
+          "name": "earnings_events_canonical_key_idx",
+          "columns": [
+            "canonical_key"
+          ],
+          "isUnique": false
+        },
+        "earnings_events_ticker_report_date_idx": {
+          "name": "earnings_events_ticker_report_date_idx",
+          "columns": [
+            "ticker",
+            "report_date"
+          ],
+          "isUnique": false
+        },
+        "earnings_events_status_report_date_idx": {
+          "name": "earnings_events_status_report_date_idx",
+          "columns": [
+            "status",
+            "report_date"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "event_facts": {
+      "name": "event_facts",
+      "columns": {
+        "fact_id": {
+          "name": "fact_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "fact_type": {
+          "name": "fact_type",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "metric": {
+          "name": "metric",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "period_key": {
+          "name": "period_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "value_number": {
+          "name": "value_number",
+          "type": "real",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "value_text": {
+          "name": "value_text",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "unit": {
+          "name": "unit",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "currency": {
+          "name": "currency",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "source_ref_id": {
+          "name": "source_ref_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "raw_fetch_id": {
+          "name": "raw_fetch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fact_version": {
+          "name": "fact_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "as_of": {
+          "name": "as_of",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "event_facts_identity_uq": {
+          "name": "event_facts_identity_uq",
+          "columns": [
+            "event_id",
+            "fact_type",
+            "metric",
+            "period_key",
+            "fact_version"
+          ],
+          "isUnique": true
+        },
+        "event_facts_event_idx": {
+          "name": "event_facts_event_idx",
+          "columns": [
+            "event_id"
+          ],
+          "isUnique": false
+        },
+        "event_facts_metric_idx": {
+          "name": "event_facts_metric_idx",
+          "columns": [
+            "metric",
+            "period_key"
+          ],
+          "isUnique": false
+        },
+        "event_facts_source_ref_idx": {
+          "name": "event_facts_source_ref_idx",
+          "columns": [
+            "source_ref_id"
+          ],
+          "isUnique": false
+        },
+        "event_facts_raw_fetch_idx": {
+          "name": "event_facts_raw_fetch_idx",
+          "columns": [
+            "raw_fetch_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "event_facts_event_id_earnings_events_event_id_fk": {
+          "name": "event_facts_event_id_earnings_events_event_id_fk",
+          "tableFrom": "event_facts",
+          "tableTo": "earnings_events",
+          "columnsFrom": [
+            "event_id"
+          ],
+          "columnsTo": [
+            "event_id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        },
+        "event_facts_source_ref_id_source_refs_source_ref_id_fk": {
+          "name": "event_facts_source_ref_id_source_refs_source_ref_id_fk",
+          "tableFrom": "event_facts",
+          "tableTo": "source_refs",
+          "columnsFrom": [
+            "source_ref_id"
+          ],
+          "columnsTo": [
+            "source_ref_id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        },
+        "event_facts_raw_fetch_id_qveris_fetch_cache_cache_key_fk": {
+          "name": "event_facts_raw_fetch_id_qveris_fetch_cache_cache_key_fk",
+          "tableFrom": "event_facts",
+          "tableTo": "qveris_fetch_cache",
+          "columnsFrom": [
+            "raw_fetch_id"
+          ],
+          "columnsTo": [
+            "cache_key"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "qveris_fetch_cache": {
+      "name": "qveris_fetch_cache",
+      "columns": {
+        "cache_key": {
+          "name": "cache_key",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "tool_id": {
+          "name": "tool_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "parameters_json": {
+          "name": "parameters_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "response_json": {
+          "name": "response_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "response_hash": {
+          "name": "response_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "execution_id": {
+          "name": "execution_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "fetched_at": {
+          "name": "fetched_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "schema_version": {
+          "name": "schema_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "qveris_fetch_cache_expires_idx": {
+          "name": "qveris_fetch_cache_expires_idx",
+          "columns": [
+            "expires_at"
+          ],
+          "isUnique": false
+        },
+        "qveris_fetch_cache_tool_expires_idx": {
+          "name": "qveris_fetch_cache_tool_expires_idx",
+          "columns": [
+            "tool_id",
+            "expires_at"
+          ],
+          "isUnique": false
+        },
+        "qveris_fetch_cache_execution_idx": {
+          "name": "qveris_fetch_cache_execution_idx",
+          "columns": [
+            "execution_id"
+          ],
+          "isUnique": false
+        },
+        "qveris_fetch_cache_response_hash_idx": {
+          "name": "qveris_fetch_cache_response_hash_idx",
+          "columns": [
+            "response_hash"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {},
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "research_snapshots": {
+      "name": "research_snapshots",
+      "columns": {
+        "analysis_id": {
+          "name": "analysis_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "request_key": {
+          "name": "request_key",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "ticker": {
+          "name": "ticker",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "event_id": {
+          "name": "event_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "mode": {
+          "name": "mode",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "language": {
+          "name": "language",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "snapshot_version": {
+          "name": "snapshot_version",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "analysis_json": {
+          "name": "analysis_json",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "generated_at": {
+          "name": "generated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "cache_expires_at": {
+          "name": "cache_expires_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "research_snapshots_request_cache_expires_idx": {
+          "name": "research_snapshots_request_cache_expires_idx",
+          "columns": [
+            "request_key",
+            "cache_expires_at"
+          ],
+          "isUnique": false
+        },
+        "research_snapshots_ticker_generated_idx": {
+          "name": "research_snapshots_ticker_generated_idx",
+          "columns": [
+            "ticker",
+            "generated_at"
+          ],
+          "isUnique": false
+        },
+        "research_snapshots_event_idx": {
+          "name": "research_snapshots_event_idx",
+          "columns": [
+            "event_id"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "research_snapshots_event_id_earnings_events_event_id_fk": {
+          "name": "research_snapshots_event_id_earnings_events_event_id_fk",
+          "tableFrom": "research_snapshots",
+          "tableTo": "earnings_events",
+          "columnsFrom": [
+            "event_id"
+          ],
+          "columnsTo": [
+            "event_id"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    },
+    "source_refs": {
+      "name": "source_refs",
+      "columns": {
+        "source_ref_id": {
+          "name": "source_ref_id",
+          "type": "text",
+          "primaryKey": true,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "provider": {
+          "name": "provider",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "capability": {
+          "name": "capability",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "execution_id": {
+          "name": "execution_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "raw_fetch_id": {
+          "name": "raw_fetch_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "published_at": {
+          "name": "published_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false,
+          "autoincrement": false
+        },
+        "retrieved_at": {
+          "name": "retrieved_at",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        },
+        "source_hash": {
+          "name": "source_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "autoincrement": false
+        }
+      },
+      "indexes": {
+        "source_refs_provider_hash_uq": {
+          "name": "source_refs_provider_hash_uq",
+          "columns": [
+            "provider",
+            "source_hash"
+          ],
+          "isUnique": true
+        },
+        "source_refs_execution_idx": {
+          "name": "source_refs_execution_idx",
+          "columns": [
+            "execution_id"
+          ],
+          "isUnique": false
+        },
+        "source_refs_raw_fetch_idx": {
+          "name": "source_refs_raw_fetch_idx",
+          "columns": [
+            "raw_fetch_id"
+          ],
+          "isUnique": false
+        },
+        "source_refs_url_idx": {
+          "name": "source_refs_url_idx",
+          "columns": [
+            "url"
+          ],
+          "isUnique": false
+        }
+      },
+      "foreignKeys": {
+        "source_refs_raw_fetch_id_qveris_fetch_cache_cache_key_fk": {
+          "name": "source_refs_raw_fetch_id_qveris_fetch_cache_cache_key_fk",
+          "tableFrom": "source_refs",
+          "tableTo": "qveris_fetch_cache",
+          "columnsFrom": [
+            "raw_fetch_id"
+          ],
+          "columnsTo": [
+            "cache_key"
+          ],
+          "onDelete": "set null",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "checkConstraints": {}
+    }
+  },
+  "views": {},
+  "enums": {},
+  "_meta": {
+    "schemas": {},
+    "tables": {},
+    "columns": {}
+  },
+  "internal": {
+    "indexes": {}
+  }
+}

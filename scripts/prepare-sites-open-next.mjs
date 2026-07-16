@@ -68,3 +68,8 @@ await rm(path.join(serverDir, "dynamodb-provider"), { recursive: true, force: tr
 await rm(path.join(serverDir, "middleware"), { recursive: true, force: true });
 await rm(path.join(serverDir, "server-functions"), { recursive: true, force: true });
 await rm(bundleDir, { recursive: true, force: true });
+
+const openaiDistDir = path.join(distDir, ".openai");
+await mkdir(openaiDistDir, { recursive: true });
+await cp(path.join(root, ".openai", "hosting.json"), path.join(openaiDistDir, "hosting.json"));
+await cp(path.join(root, "drizzle"), path.join(openaiDistDir, "drizzle"), { recursive: true });

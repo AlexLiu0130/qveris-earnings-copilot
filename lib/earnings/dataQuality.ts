@@ -32,12 +32,29 @@ export function detectDataConflicts(input: {
   const { event, results } = input;
   const conflicts: string[] = [];
 
+  if (
+    event?.revenueEstimate != null
+    && input.estimates?.revenueEstimate != null
+    && meaningfullyDifferent(event.revenueEstimate, input.estimates.revenueEstimate, 0.005, 1)
+  ) {
+    conflicts.push(zh ? "事件营收预期与提供方营收预期不一致，已采用事件值。" : "Event revenue estimate differs from provider revenue estimate; using the event value.");
+  }
+  if (
+    event?.epsEstimate != null
+    && input.estimates?.epsEstimate != null
+    && meaningfullyDifferent(event.epsEstimate, input.estimates.epsEstimate, 0.01, 0.01)
+  ) {
+    conflicts.push(zh ? "事件 EPS 预期与提供方 EPS 预期不一致，已采用事件值。" : "Event EPS estimate differs from provider EPS estimate; using the event value.");
+  }
+
   const latest = input.financials[0];
   if (event?.status === "reported" && results && latest) {
     const eventQuarter = quarter(event.fiscalPeriod);
     const matching = input.financials.find((period) =>
-      (!event.fiscalYear || !period.fiscalYear || event.fiscalYear === period.fiscalYear)
-      && (!eventQuarter || !quarter(period.period) || eventQuarter === quarter(period.period)),
+      event.fiscalYear != null
+      && eventQuarter != null
+      && period.fiscalYear === event.fiscalYear
+      && quarter(period.period) === eventQuarter,
     );
     if (matching && meaningfullyDifferent(results.revenueActual, matching.revenue, 0.01)) {
       conflicts.push(zh ? "财报营收实际值与同一季度财务报表存在重大差异。" : "Reported revenue differs materially from the matching quarterly financial statement.");
@@ -82,9 +99,10 @@ export function selectFiscalPeriod<T extends { fiscalYear?: number; period?: str
 ) {
   if (!event) return rows[0];
   const eventQuarter = quarter(event.fiscalPeriod);
+  if (event.fiscalYear == null || eventQuarter == null) return undefined;
   return rows.find((row) =>
-    (!event.fiscalYear || row.fiscalYear === event.fiscalYear)
-    && (!eventQuarter || quarter(row.period) === eventQuarter),
+    row.fiscalYear === event.fiscalYear
+    && quarter(row.period) === eventQuarter,
   );
 }
 

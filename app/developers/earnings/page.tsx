@@ -54,6 +54,25 @@ report.sources.length;        // audit trail
 report.missing;               // what the agent could NOT get
 report.analysis.confidence;   // label + human-readable reason`;
 
+const MCP_EXAMPLE = `const packet = await mcp.callTool("qveris_earnings_analyze", {
+  ticker: "NVDA",
+  mode: "auto",
+  includeSources: true,
+  includeTranscript: true,
+});
+
+return {
+  summary: packet.analysis.summaryBullets,
+  sources: packet.sources,
+  missing: packet.missing,
+  confidence: packet.analysis.confidence,
+};`;
+
+const PROMPT_TEMPLATE = `Use only the earnings packet JSON.
+Required inputs: sources, missing, analysis.confidence.
+If a numeric field has no sourceIds resolving to sources, say unavailable.
+Mention missing capabilities and confidence.reason. No investment advice.`;
+
 const LAYERS = {
   capability: [
     ["Calendar", "sage"],
@@ -250,6 +269,10 @@ export default async function DevelopersPage() {
           <CodeBlock title={t.dev.exampleResponse} code={JSON_EXAMPLE} copy={t.copy.copy} copied={t.copy.copied} />
         </div>
         <CodeBlock title={t.dev.exampleTs} code={TS_EXAMPLE} copy={t.copy.copy} copied={t.copy.copied} />
+        <div className="grid gap-6 lg:grid-cols-2">
+          <CodeBlock title={t.dev.exampleMcp} code={MCP_EXAMPLE} copy={t.copy.copy} copied={t.copy.copied} />
+          <CodeBlock title={t.dev.examplePrompt} code={PROMPT_TEMPLATE} copy={t.copy.copy} copied={t.copy.copied} />
+        </div>
       </section>
 
       {/* audit & confidence model */}

@@ -86,7 +86,7 @@ const en = {
     upcomingEarnings: "Upcoming earnings",
     featuredPreviews: "Featured previews",
     trendingBriefs: "Trending briefs",
-    emptyRecent: "No earnings reported in the past two weeks within the covered universe.",
+    emptyRecent: "No earnings reported in the past 30 days within the covered universe.",
     emptyUpcoming: "No upcoming earnings in the next 30 days within the covered universe.",
     coveredCompanies: "Covered companies",
     fullCalendar: "Full calendar →",
@@ -363,6 +363,7 @@ const en = {
     exampleResponse: "Response shape",
     exampleTs: "TypeScript",
     exampleMcp: "MCP / agent usage",
+    examplePrompt: "Prompt template",
     auditTitle: "The audit & confidence model",
     auditSourcesTitle: "Sources, always",
     auditSourcesBody:
@@ -466,7 +467,7 @@ const zh: Dict = {
     upcomingEarnings: "即将发布",
     featuredPreviews: "重点前瞻",
     trendingBriefs: "热门简报",
-    emptyRecent: "覆盖范围内过去两周没有已发布的财报。",
+    emptyRecent: "覆盖范围内过去 30 天没有已发布的财报。",
     emptyUpcoming: "覆盖范围内未来 30 天没有即将发布的财报。",
     coveredCompanies: "覆盖公司",
     fullCalendar: "查看完整日历 →",
@@ -742,6 +743,7 @@ const zh: Dict = {
     exampleResponse: "响应结构",
     exampleTs: "TypeScript",
     exampleMcp: "MCP / Agent 用法",
+    examplePrompt: "Prompt 模板",
     auditTitle: "审计与置信度模型",
     auditSourcesTitle: "处处有来源",
     auditSourcesBody:

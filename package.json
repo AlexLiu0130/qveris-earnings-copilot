@@ -6,13 +6,16 @@
     "dev": "NEXT_DIST_DIR=.next-codex next dev --webpack",
     "build": "next build --webpack",
     "build:codex": "NEXT_DIST_DIR=.next-codex next build --webpack",
-    "build:sites": "npm run build && SKIP_WRANGLER_CONFIG_CHECK=yes opennextjs-cloudflare build && node scripts/prepare-sites-open-next.mjs",
+    "build:sites": "node scripts/build-sites-secret-safe.mjs",
+    "scan:dist-secrets": "node scripts/scan-dist-secrets.mjs",
+    "db:generate": "drizzle-kit generate",
     "start": "NEXT_DIST_DIR=.next-codex next start",
-    "test": "node --import tsx --test 'lib/**/*.test.ts'",
+    "test": "node --import tsx --test 'lib/**/*.test.ts' 'app/**/*.test.ts'",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4.3.2",
+    "drizzle-orm": "0.45.2",
     "next": "16.2.7",
     "react": "19.2.4",
     "react-dom": "19.2.4",
@@ -23,6 +26,7 @@
     "@types/node": "^20",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "drizzle-kit": "0.31.10",
     "tsx": "^4.20.6",
     "typescript": "^5"
   }

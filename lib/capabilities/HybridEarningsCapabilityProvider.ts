@@ -1,5 +1,5 @@
 import type { EarningsCapabilityProvider } from "@/lib/capabilities/EarningsCapabilityProvider";
-import type { AnalystParams, EarningsCalendarParams, FilingParams, HistoricalPriceParams, NewsParams } from "@/lib/earnings/types";
+import type { AnalystParams, EarningsCalendarParams, EarningsEvent, FilingParams, HistoricalPriceParams, NewsParams } from "@/lib/earnings/types";
 
 export class HybridEarningsCapabilityProvider implements EarningsCapabilityProvider {
   constructor(private readonly options: {
@@ -7,6 +7,13 @@ export class HybridEarningsCapabilityProvider implements EarningsCapabilityProvi
     fallback: EarningsCapabilityProvider;
     allowDemoFallback: boolean;
   }) {}
+
+  getSourceRefs() {
+    return [
+      ...(this.options.primary.getSourceRefs?.() ?? []),
+      ...(this.options.allowDemoFallback ? (this.options.fallback.getSourceRefs?.() ?? []) : []),
+    ];
+  }
 
   async getCompanyProfile(ticker: string) {
     return (await this.options.primary.getCompanyProfile(ticker)) ?? this.fallbackNullable((p) => p.getCompanyProfile(ticker));
@@ -17,11 +24,11 @@ export class HybridEarningsCapabilityProvider implements EarningsCapabilityProvi
     return data.length ? data : this.fallbackArray((p) => p.getEarningsCalendar(params));
   }
 
-  async getEarningsEstimates(ticker: string, eventId?: string) {
-    return (await this.options.primary.getEarningsEstimates(ticker, eventId)) ?? this.fallbackNullable((p) => p.getEarningsEstimates(ticker, eventId));
+  async getEarningsEstimates(ticker: string, event?: EarningsEvent | null) {
+    return (await this.options.primary.getEarningsEstimates(ticker, event)) ?? this.fallbackNullable((p) => p.getEarningsEstimates(ticker, event));
   }
 
-  async getEarningsResults(ticker: string, event?: import("@/lib/earnings/types").EarningsEvent | null) {
+  async getEarningsResults(ticker: string, event?: EarningsEvent | null) {
     return (await this.options.primary.getEarningsResults(ticker, event)) ?? this.fallbackNullable((p) => p.getEarningsResults(ticker, event));
   }
 
@@ -39,6 +46,16 @@ export class HybridEarningsCapabilityProvider implements EarningsCapabilityProvi
     return data.length ? data : this.fallbackArray((p) => p.getHistoricalPrices(ticker, params));
   }
 
+  async getFinancialStatements(ticker: string, limit?: number) {
+    const data = await this.options.primary.getFinancialStatements?.(ticker, limit) ?? [];
+    return data.length ? data : this.fallbackArray((p) => p.getFinancialStatements?.(ticker, limit) ?? []);
+  }
+
+  async getRevenueSegments(ticker: string, limit?: number) {
+    const data = await this.options.primary.getRevenueSegments?.(ticker, limit) ?? [];
+    return data.length ? data : this.fallbackArray((p) => p.getRevenueSegments?.(ticker, limit) ?? []);
+  }
+
   async getFinancialNews(ticker: string, params: NewsParams) {
     const data = await this.options.primary.getFinancialNews(ticker, params);
     return data.length ? data : this.fallbackArray((p) => p.getFinancialNews(ticker, params));
@@ -49,7 +66,7 @@ export class HybridEarningsCapabilityProvider implements EarningsCapabilityProvi
     return data.length ? data : this.fallbackArray((p) => p.getSecFilings(ticker, params));
   }
 
-  async getEarningsTranscript(ticker: string, event?: import("@/lib/earnings/types").EarningsEvent | null) {
+  async getEarningsTranscript(ticker: string, event?: EarningsEvent | null) {
     return (await this.options.primary.getEarningsTranscript?.(ticker, event)) ?? this.fallbackNullable((p) => p.getEarningsTranscript?.(ticker, event) ?? null);
   }
 

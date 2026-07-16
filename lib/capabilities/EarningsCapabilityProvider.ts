@@ -24,7 +24,7 @@ export interface EarningsCapabilityProvider {
   getSourceRefs?(): SourceRef[];
   getCompanyProfile(ticker: string): Promise<CompanyProfile | null>;
   getEarningsCalendar(params: EarningsCalendarParams): Promise<EarningsEvent[]>;
-  getEarningsEstimates(ticker: string, eventId?: string): Promise<EarningsEstimates | null>;
+  getEarningsEstimates(ticker: string, event?: EarningsEvent | null): Promise<EarningsEstimates | null>;
   getEarningsResults(ticker: string, event?: EarningsEvent | null): Promise<EarningsResults | null>;
   getHistoricalEarnings(ticker: string, limit?: number): Promise<HistoricalEarnings[]>;
   getStockQuote(ticker: string): Promise<StockQuote | null>;

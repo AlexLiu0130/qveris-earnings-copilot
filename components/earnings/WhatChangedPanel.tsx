@@ -30,47 +30,53 @@ export async function WhatChangedPanel({ analysis }: { analysis: EarningsAnalysi
   const grossMargin = grossMarginRatio == null ? undefined : grossMarginRatio * 100;
   const priorRevenue = prior?.revenueActual ?? priorFinancials?.revenue;
   const priorGrossMargin = priorFinancials?.grossMargin == null ? undefined : priorFinancials.grossMargin * 100;
-  const revenueIds = results?.fieldSourceIds?.revenueActual ?? latestFinancials?.sourceIds;
-  const epsIds = results?.fieldSourceIds?.epsActual ?? results?.sourceIds;
-  const marginIds = results?.fieldSourceIds?.grossMargin ?? latestFinancials?.sourceIds;
+  const revenueIds = results?.revenueActual != null ? results.fieldSourceIds?.revenueActual : latestFinancials?.sourceIds;
+  const priorRevenueIds = prior?.revenueActual != null ? prior.sourceIds : priorFinancials?.sourceIds;
+  const epsIds = results?.fieldSourceIds?.epsActual;
+  const priorEpsIds = prior?.epsActual != null ? prior.sourceIds : undefined;
+  const marginIds = results?.grossMargin != null ? results.fieldSourceIds?.grossMargin : latestFinancials?.sourceIds;
+  const priorMarginIds = priorGrossMargin == null ? undefined : priorFinancials?.sourceIds;
 
   const tone = transcript?.available ? transcript.managementTone ?? "unavailable" : "unavailable";
 
-  const rows: Array<{ field: string; current: string; prev: string; change: React.ReactNode; ids?: string[] }> = [
+  const rows: Array<{ field: string; current: string; prev: string; change: React.ReactNode; currentIds?: string[]; prevIds?: string[] }> = [
     {
       field: t.flash.revenue,
-      current: u(fmtMoney(revenueActual), un),
-      prev: u(fmtMoney(priorRevenue), un),
-      change: u(deltaPct(revenueActual, priorRevenue), un),
-      ids: revenueIds,
+      current: sourced(fmtMoney(revenueActual), revenueIds, un),
+      prev: sourced(fmtMoney(priorRevenue), priorRevenueIds, un),
+      change: sourced(deltaPct(revenueActual, priorRevenue), idsForDelta(revenueIds, priorRevenueIds), un),
+      currentIds: revenueIds,
+      prevIds: priorRevenueIds,
     },
     {
       field: t.flash.eps,
-      current: u(fmtEps(results?.epsActual), un),
-      prev: u(fmtEps(prior?.epsActual), un),
-      change: u(deltaPct(results?.epsActual, prior?.epsActual), un),
-      ids: epsIds,
+      current: sourced(fmtEps(results?.epsActual), epsIds, un),
+      prev: sourced(fmtEps(prior?.epsActual), priorEpsIds, un),
+      change: sourced(deltaPct(results?.epsActual, prior?.epsActual), idsForDelta(epsIds, priorEpsIds), un),
+      currentIds: epsIds,
+      prevIds: priorEpsIds,
     },
     {
       field: t.flash.grossMargin,
-      current: grossMargin == null ? un : `${grossMargin.toFixed(1)}%`,
-      prev: priorGrossMargin == null ? un : `${priorGrossMargin.toFixed(1)}%`,
-      change: u(deltaPct(grossMargin, priorGrossMargin), un),
-      ids: marginIds,
+      current: sourced(grossMargin == null ? "unavailable" : `${grossMargin.toFixed(1)}%`, marginIds, un),
+      prev: sourced(priorGrossMargin == null ? "unavailable" : `${priorGrossMargin.toFixed(1)}%`, priorMarginIds, un),
+      change: sourced(deltaPct(grossMargin, priorGrossMargin), idsForDelta(marginIds, priorMarginIds), un),
+      currentIds: marginIds,
+      prevIds: priorMarginIds,
     },
     {
       field: t.flash.guidance,
-      current: results?.guidanceText ? "—" : un,
+      current: results?.guidanceText && results.fieldSourceIds?.guidanceText?.length ? "—" : un,
       prev: "—",
-      change: beatMiss ? <BeatMissTag value={beatMiss.guidance} /> : un,
-      ids: results?.fieldSourceIds?.guidanceText ?? results?.sourceIds,
+      change: beatMiss && results?.fieldSourceIds?.guidanceText?.length ? <BeatMissTag value={beatMiss.guidance} /> : un,
+      currentIds: results?.fieldSourceIds?.guidanceText,
     },
     {
       field: t.call.managementTone,
-      current: t.call.tone[tone] ?? tone,
+      current: sourced(t.call.tone[tone] ?? tone, transcript?.sourceIds, un),
       prev: "—",
       change: "—",
-      ids: transcript?.sourceIds,
+      currentIds: transcript?.sourceIds,
     },
   ];
 
@@ -100,11 +106,11 @@ export async function WhatChangedPanel({ analysis }: { analysis: EarningsAnalysi
               <td className="text-ink-soft">{row.field}</td>
               <td className="text-ink">
                 {row.current}
-                {row.current !== un && row.current !== "—" && row.ids && <Cite ids={row.ids} sources={sources} />}
+                {row.current !== un && row.current !== "—" && row.currentIds && <Cite ids={row.currentIds} sources={sources} />}
               </td>
               <td className="text-ink-soft">
                 {row.prev}
-                {row.prev !== un && row.prev !== "—" && prior && <Cite ids={prior.sourceIds} sources={sources} />}
+                {row.prev !== un && row.prev !== "—" && row.prevIds && <Cite ids={row.prevIds} sources={sources} />}
               </td>
               <td className="text-ink-soft">{row.change}</td>
             </tr>
@@ -136,14 +142,17 @@ export async function WhatChangedPanel({ analysis }: { analysis: EarningsAnalysi
                     <td className="text-ink">{row.fiscalPeriod ?? "—"}</td>
                     <td className="text-ink-soft">{fmtDate(row.reportDate, lang)}</td>
                     <td className="text-ink-soft">
-                      {u(fmtMoney(row.revenueActual), un)} / {u(fmtMoney(row.revenueEstimate), un)}
-                      <Cite ids={row.sourceIds} sources={sources} />
+                      {valueWithCite(fmtMoney(row.revenueActual), historicalIds(row, "revenueActual"), un, sources)} / {valueWithCite(fmtMoney(row.revenueEstimate), historicalIds(row, "revenueEstimate"), un, sources)}
                     </td>
                     <td className="text-ink-soft">
-                      {u(fmtEps(row.epsActual), un)} / {u(fmtEps(row.epsEstimate), un)}
+                      {valueWithCite(fmtEps(row.epsActual), historicalIds(row, "epsActual"), un, sources)} / {valueWithCite(fmtEps(row.epsEstimate), historicalIds(row, "epsEstimate"), un, sources)}
                     </td>
-                    <td className={moveTone(row.oneDayMovePct)}>{u(fmtPct(row.oneDayMovePct), un)}</td>
-                    <td className={moveTone(row.fiveDayMovePct)}>{u(fmtPct(row.fiveDayMovePct), un)}</td>
+                    <td className={moveTone(historicalIds(row, "oneDayMovePct")?.length ? row.oneDayMovePct : undefined)}>
+                      {valueWithCite(fmtPct(row.oneDayMovePct), historicalIds(row, "oneDayMovePct"), un, sources)}
+                    </td>
+                    <td className={moveTone(historicalIds(row, "fiveDayMovePct")?.length ? row.fiveDayMovePct : undefined)}>
+                      {valueWithCite(fmtPct(row.fiveDayMovePct), historicalIds(row, "fiveDayMovePct"), un, sources)}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -153,6 +162,28 @@ export async function WhatChangedPanel({ analysis }: { analysis: EarningsAnalysi
       )}
     </section>
   );
+}
+
+function sourced(value: string, ids: string[] | undefined, un: string) {
+  return ids?.length ? u(value, un) : un;
+}
+
+function valueWithCite(value: string, ids: string[] | undefined, un: string, sources: EarningsAnalysis["sources"]) {
+  if (!ids?.length) return un;
+  return (
+    <>
+      {u(value, un)}
+      <Cite ids={ids} sources={sources} />
+    </>
+  );
+}
+
+function historicalIds(row: HistoricalEarnings, field: "revenueActual" | "revenueEstimate" | "epsActual" | "epsEstimate" | "oneDayMovePct" | "fiveDayMovePct") {
+  return row[field] == null ? undefined : row.sourceIds;
+}
+
+function idsForDelta(currentIds: string[] | undefined, priorIds: string[] | undefined) {
+  return currentIds?.length && priorIds?.length ? [...currentIds, ...priorIds] : undefined;
 }
 
 function moveTone(value: number | undefined) {

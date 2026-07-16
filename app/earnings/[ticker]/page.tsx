@@ -1,8 +1,9 @@
 import Link from "next/link";
 import { analyzeEarnings } from "@/lib/earnings/analyzeEarnings";
+import { buildQuarterComparison } from "@/lib/earnings/quarterComparison";
 import type { EarningsAnalysis } from "@/lib/earnings/types";
 import { buildShareMarkdown } from "@/lib/share/shareCard";
-import { saveAnalysis } from "@/lib/earnings/analysisStore";
+import { listAnalysesByTicker, saveAnalysis } from "@/lib/earnings/analysisStore";
 import type { Dict } from "@/lib/i18n/dict";
 import { getDict } from "@/lib/i18n/server";
 import { CallIntelligencePanel } from "@/components/earnings/CallIntelligencePanel";
@@ -10,6 +11,7 @@ import { CopyButton } from "@/components/earnings/CopyButton";
 import { EarningsSearchBox } from "@/components/earnings/EarningsSearchBox";
 import { KeyMetricsPanel } from "@/components/earnings/KeyMetricsPanel";
 import { ManagementCommentaryPanel } from "@/components/earnings/ManagementCommentaryPanel";
+import { MultiQuarterPanel } from "@/components/earnings/MultiQuarterPanel";
 import { NewsFilingsPanel } from "@/components/earnings/NewsFilingsPanel";
 import { SourceList } from "@/components/earnings/SourceList";
 import { TickerEarningsHeader } from "@/components/earnings/TickerEarningsHeader";
@@ -45,7 +47,10 @@ export default async function TickerResearchPage({
     }
     throw error;
   }
-  saveAnalysis(request, analysis);
+  await saveAnalysis(request, analysis);
+  const savedAnalyses = await listAnalysesByTicker(analysis.ticker, 12);
+  const quarterRows = buildQuarterComparison(savedAnalyses, 8);
+  const quarterSources = [...new Map(savedAnalyses.flatMap((item) => item.sources).map((source) => [source.id, source])).values()];
 
   const markdown = buildShareMarkdown(analysis);
 
@@ -63,12 +68,15 @@ export default async function TickerResearchPage({
           <div className="rise rise-3">
             <KeyMetricsPanel analysis={analysis} />
           </div>
-          <div className="rise rise-4 space-y-5">
+          <div className="rise rise-4">
+            <MultiQuarterPanel rows={quarterRows} sources={quarterSources} language={analysis.language} />
+          </div>
+          <div className="rise rise-5 space-y-5">
             <WhatChangedPanel analysis={analysis} />
             <ManagementCommentaryPanel analysis={analysis} />
             <CallIntelligencePanel analysis={analysis} />
           </div>
-          <div className="rise rise-5">
+          <div className="rise rise-6">
             <NewsFilingsPanel analysis={analysis} />
           </div>
         </main>

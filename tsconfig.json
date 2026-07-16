@@ -40,6 +40,9 @@
     ".next-codex/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "dist",
+    "**/* *.ts",
+    "**/* *.tsx"
   ]
 }

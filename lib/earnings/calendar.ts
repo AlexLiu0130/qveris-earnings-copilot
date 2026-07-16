@@ -1,49 +1,78 @@
 import { getEarningsProvider } from "@/lib/capabilities/provider";
+import type { EarningsCapabilityProvider } from "@/lib/capabilities/EarningsCapabilityProvider";
 import { addDaysIso, todayIso } from "@/lib/earnings/date";
-import { buildSourceRefs } from "@/lib/earnings/buildSourceRefs";
 import { getCompanyProfiles } from "@/lib/earnings/companies";
+import { dataIssue, isQVerisCapabilityError } from "@/lib/earnings/providerIssues";
 import { sourceIdsFrom, uniqueSources } from "@/lib/earnings/sourceRefs";
-import type { EarningsCalendarParams, EarningsEvent } from "@/lib/earnings/types";
+import type { DataIssue, EarningsCalendarParams, EarningsEvent, SourceRef } from "@/lib/earnings/types";
 import { localEnv } from "@/lib/runtime/env";
 
 type CalendarResponse = Awaited<ReturnType<typeof uncachedEarningsCalendar>>;
 
 const cache = new Map<string, { expiresAt: number; value: CalendarResponse }>();
 
-export async function getEarningsCalendar(params: Partial<EarningsCalendarParams>) {
+export async function getEarningsCalendar(params: Partial<EarningsCalendarParams>, provider?: EarningsCapabilityProvider) {
   const normalized = normalizeParams(params);
+  if (provider) return uncachedEarningsCalendar(normalized, provider);
   const key = JSON.stringify(normalized);
   const now = Date.now();
   const cached = cache.get(key);
   if (cached && cached.expiresAt > now) return { ...cached.value, cached: true };
 
   const value = await uncachedEarningsCalendar(normalized);
-  cache.set(key, { value, expiresAt: now + cacheTtlMs() });
+  if (value.issues.length === 0) cache.set(key, { value, expiresAt: now + cacheTtlMs() });
   return { ...value, cached: false };
 }
 
-async function uncachedEarningsCalendar(params: EarningsCalendarParams) {
+async function uncachedEarningsCalendar(params: EarningsCalendarParams, provider = getEarningsProvider()) {
   const from = params.from ?? todayIso();
   const to = params.to ?? addDaysIso(from, 14);
-  const provider = getEarningsProvider();
-  const rawEvents = await provider.getEarningsCalendar({
-    from,
-    to,
-    universe: params.universe,
-    sector: params.sector,
-    status: params.status,
-    timing: params.timing,
-    minMarketCap: params.minMarketCap,
-  });
-  const events = await filterAndSort(rawEvents, params);
-  const sourceIds = sourceIdsFrom(...events);
-  const sources = uniqueSources(sourceIds.flatMap((id) => buildSourceRefs(id.split("-")[0] ?? "QVERIS", [id])));
+  let events: EarningsEvent[] = [];
+  let sources: SourceRef[] = [];
+  const issues: DataIssue[] = [];
+  try {
+    const rawEvents = await provider.getEarningsCalendar({
+      from,
+      to,
+      universe: params.universe,
+      sector: params.sector,
+      status: params.status,
+      timing: params.timing,
+      minMarketCap: params.minMarketCap,
+    });
+    events = await filterAndSort(rawEvents, params);
+    const sourceIds = sourceIdsFrom(...events);
+    sources = uniqueSources(provider.getSourceRefs?.() ?? []).filter((source) => sourceIds.includes(source.id));
+    const resolvedSourceIds = new Set(sources.map((source) => source.id));
+    for (const id of sourceIds.filter((sourceId) => !resolvedSourceIds.has(sourceId))) {
+      issues.push(missingSourceIssue(id));
+    }
+  } catch (error) {
+    if (!isQVerisCapabilityError(error)) throw error;
+    issues.push(dataIssue("earningsCalendar", "EARNINGS_CALENDAR_UNAVAILABLE", error));
+  }
   return {
     from,
     to,
     events,
     sources,
-    missing: events.length ? [] : ["earningsCalendar"],
+    issues,
+    missing: issues.length
+      ? [...new Set([
+          ...issues.filter((issue) => issue.capability === "earningsCalendar").map((issue) => issue.capability),
+          ...issues.filter((issue) => issue.capability === "sourceAudit").map((issue) => `source:${issue.toolId}`),
+        ])]
+      : [],
+  };
+}
+
+function missingSourceIssue(id: string): DataIssue {
+  return {
+    capability: "sourceAudit",
+    code: "SOURCE_REF_MISSING",
+    toolId: id,
+    retryable: false,
+    occurredAt: new Date().toISOString(),
   };
 }
 

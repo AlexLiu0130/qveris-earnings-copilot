@@ -10,6 +10,7 @@ export default async function BriefsPage() {
   const { t } = await getDict();
   const today = todayIso();
   const calendar = await getEarningsCalendar({ from: addDaysIso(today, -30), to: addDaysIso(today, 45) });
+  const dataUnavailable = calendar.issues.length ? dataIssueText() : null;
   const flashes = calendar.events
     .filter((event) => event.status === "reported")
     .sort((a, b) => b.reportDate.localeCompare(a.reportDate))
@@ -25,10 +26,14 @@ export default async function BriefsPage() {
         <h1 className="font-display text-4xl text-ink">{t.briefsPage.title}</h1>
         <p className="mt-1 text-sm text-ink-soft">{t.briefsPage.sub}</p>
       </header>
-      <BriefSection title={t.briefsPage.latestFlash} events={flashes} emptyText={t.briefsPage.emptyFlash} className="rise rise-2" />
-      <BriefSection title={t.briefsPage.upcomingPreviews} events={previews} emptyText={t.briefsPage.emptyPreviews} className="rise rise-3" />
+      <BriefSection title={t.briefsPage.latestFlash} events={flashes} emptyText={dataUnavailable ?? t.briefsPage.emptyFlash} className="rise rise-2" />
+      <BriefSection title={t.briefsPage.upcomingPreviews} events={previews} emptyText={dataUnavailable ?? t.briefsPage.emptyPreviews} className="rise rise-3" />
     </div>
   );
+}
+
+function dataIssueText() {
+  return "Data service temporarily unavailable. 数据服务暂时不可用。";
 }
 
 function BriefSection({

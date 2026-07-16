@@ -14,7 +14,8 @@ export const dynamic = "force-dynamic";
 export default async function EarningsConsole() {
   const { lang, t } = await getDict();
   const today = todayIso();
-  const calendar = await getEarningsCalendar({ from: addDaysIso(today, -14), to: addDaysIso(today, 30) });
+  const calendar = await getEarningsCalendar({ from: addDaysIso(today, -30), to: addDaysIso(today, 30) });
+  const dataUnavailable = calendar.issues.length ? dataIssueText() : null;
 
   const recentEvents = calendar.events
     .filter((event) => event.status === "reported")
@@ -64,7 +65,7 @@ export default async function EarningsConsole() {
             title={t.home.thisWeek}
             events={upcomingEvents}
             companies={companies}
-            empty={t.home.emptyUpcoming}
+            empty={dataUnavailable ?? t.home.emptyUpcoming}
             t={t}
             lang={lang}
           />
@@ -72,7 +73,7 @@ export default async function EarningsConsole() {
             title={t.home.recentlyReported}
             events={recentEvents}
             companies={companies}
-            empty={t.home.emptyRecent}
+            empty={dataUnavailable ?? t.home.emptyRecent}
             t={t}
             lang={lang}
           />
@@ -95,6 +96,10 @@ export default async function EarningsConsole() {
       </Reveal>
     </div>
   );
+}
+
+function dataIssueText() {
+  return "Data service temporarily unavailable. 数据服务暂时不可用。";
 }
 
 function EventList({

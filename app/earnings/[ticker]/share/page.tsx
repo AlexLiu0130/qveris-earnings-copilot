@@ -6,7 +6,7 @@ import { getDict } from "@/lib/i18n/server";
 import { CopyButton } from "@/components/earnings/CopyButton";
 import { EarningsSearchBox } from "@/components/earnings/EarningsSearchBox";
 import { ShareCard } from "@/components/earnings/ShareCard";
-import { getAnalysisById } from "@/lib/earnings/analysisStore";
+import { getAnalysisById, saveAnalysis } from "@/lib/earnings/analysisStore";
 
 export const dynamic = "force-dynamic";
 
@@ -22,26 +22,24 @@ export default async function SharePage({
   const { lang, t } = await getDict();
 
   const analysisId = Array.isArray(query.analysisId) ? query.analysisId[0] : query.analysisId;
-  let analysis = analysisId ? getAnalysisById(analysisId) : null;
+  let analysis = analysisId ? await getAnalysisById(analysisId) : null;
+  const requestedTicker = decodeURIComponent(ticker).toUpperCase();
+  if (analysisId && (!analysis || analysis.ticker !== requestedTicker)) {
+    return <ShareNotFound t={t} />;
+  }
   try {
-    if (!analysis || analysis.ticker !== decodeURIComponent(ticker).toUpperCase()) {
-      analysis = await analyzeEarnings({
-        ticker: decodeURIComponent(ticker),
+    if (!analysis) {
+      const request = {
+        ticker: requestedTicker,
         mode: "auto",
         language: lang,
         includeTranscript: true,
-      });
+      } as const;
+      analysis = await analyzeEarnings(request);
+      await saveAnalysis(request, analysis);
     }
   } catch {
-    return (
-      <div className="mx-auto max-w-xl py-16 text-center">
-        <p className="font-display text-3xl italic text-ink">{t.share.nothingTitle}</p>
-        <p className="mt-3 text-ink-soft">{t.share.nothingBody}</p>
-        <div className="mx-auto mt-6 max-w-sm">
-          <EarningsSearchBox placeholder={t.search.placeholder} buttonLabel={t.search.button} />
-        </div>
-      </div>
-    );
+    return <ShareNotFound t={t} />;
   }
 
   const card = buildShareCard(analysis);
@@ -100,6 +98,18 @@ export default async function SharePage({
           {t.share.buildWith}
         </Link>
       </section>
+    </div>
+  );
+}
+
+function ShareNotFound({ t }: { t: Awaited<ReturnType<typeof getDict>>["t"] }) {
+  return (
+    <div className="mx-auto max-w-xl py-16 text-center">
+      <p className="font-display text-3xl italic text-ink">{t.share.nothingTitle}</p>
+      <p className="mt-3 text-ink-soft">{t.share.nothingBody}</p>
+      <div className="mx-auto mt-6 max-w-sm">
+        <EarningsSearchBox placeholder={t.search.placeholder} buttonLabel={t.search.button} />
+      </div>
     </div>
   );
 }

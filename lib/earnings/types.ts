@@ -6,6 +6,16 @@ export type CapabilityState = "available" | "partial" | "unavailable" | "conflic
 export type AnalysisMode = "auto" | "preview" | "flash" | "call_intelligence" | "combined" | "no_event";
 export type ResolvedAnalysisMode = Exclude<AnalysisMode, "auto">;
 
+export interface DataIssue {
+  capability: string;
+  code: string;
+  errorType?: string;
+  statusCode?: number;
+  toolId?: string;
+  retryable: boolean;
+  occurredAt: string;
+}
+
 export interface SourceRef {
   id: string;
   title: string;
@@ -15,6 +25,17 @@ export interface SourceRef {
   retrievedAt: string;
   capability?: string;
   executionId?: string;
+}
+
+export type ClaimSourceIds = string[] | "unavailable";
+
+export interface EarningsClaimSourceIds {
+  oneLineVerdict: ClaimSourceIds;
+  summaryBullets: ClaimSourceIds[];
+  keyDrivers: ClaimSourceIds[];
+  riskSignals: ClaimSourceIds[];
+  qualityOfEarnings: ClaimSourceIds[];
+  watchNext: ClaimSourceIds[];
 }
 
 export interface CompanyProfile {
@@ -282,6 +303,7 @@ export interface EarningsAnalysis {
   qualityOfEarnings: string[];
   summaryBullets: string[];
   watchNext: string[];
+  claimSourceIds?: EarningsClaimSourceIds;
   confidence: {
     label: ConfidenceLabel;
     reason: string;
@@ -289,6 +311,7 @@ export interface EarningsAnalysis {
   caveats: string[];
   capabilityStatus: Record<string, CapabilityState>;
   missing: string[];
+  issues?: DataIssue[];
   conflicts: string[];
   sources: SourceRef[];
   generatedAt: string;
@@ -325,6 +348,7 @@ export interface AnalyzeEarningsResponse {
     | "riskSignals"
     | "qualityOfEarnings"
     | "watchNext"
+    | "claimSourceIds"
     | "confidence"
     | "caveats"
   >;
@@ -339,6 +363,7 @@ export interface AnalyzeEarningsResponse {
     | "riskSignals"
     | "qualityOfEarnings"
     | "watchNext"
+    | "claimSourceIds"
     | "confidence"
     | "caveats"
     | "capabilityStatus"
@@ -351,6 +376,7 @@ export interface AnalyzeEarningsResponse {
   >;
   capabilityStatus: Record<string, CapabilityState>;
   missing: string[];
+  issues: DataIssue[];
   conflicts: string[];
   sources: SourceRef[];
 }

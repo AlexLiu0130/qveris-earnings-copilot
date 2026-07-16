@@ -2,21 +2,26 @@ import Link from "next/link";
 import { getEarningsProvider } from "@/lib/capabilities/provider";
 import { getCompanyProfiles } from "@/lib/earnings/companies";
 import { getEarningsCalendar } from "@/lib/earnings/calendar";
+import { resolveEventEstimates } from "@/lib/earnings/dataQuality";
 import { todayIso } from "@/lib/earnings/date";
 import type { CompanyProfile, EarningsEstimates, EarningsEvent, EarningsTiming } from "@/lib/earnings/types";
 import { fmtDate, fmtEps, fmtMoney } from "@/lib/formatting/format";
 import { u, type Dict, type Lang } from "@/lib/i18n/dict";
 import { getDict } from "@/lib/i18n/server";
+import { parseMinMarketCapBillions } from "./marketCapFilter";
 
-/* estimates shown in the table view come straight from the provider —
-   fetched per ticker, never derived client-side */
-async function getEstimatesByTicker(events: EarningsEvent[]): Promise<Map<string, EarningsEstimates>> {
+async function getEstimatesByEvent(events: EarningsEvent[]): Promise<Map<string, EarningsEstimates>> {
   const provider = getEarningsProvider();
-  const unique = [...new Set(events.map((event) => event.ticker))];
-  const settled = await Promise.allSettled(unique.map((ticker) => provider.getEarningsEstimates(ticker)));
+  const settled = await Promise.allSettled(events.map((event) => (
+    event.revenueEstimate != null && event.epsEstimate != null
+      ? Promise.resolve(null)
+      : provider.getEarningsEstimates(event.ticker, event)
+  )));
   const map = new Map<string, EarningsEstimates>();
   settled.forEach((result, i) => {
-    if (result.status === "fulfilled" && result.value) map.set(unique[i], result.value);
+    if (result.status !== "fulfilled") return;
+    const resolved = resolveEventEstimates(events[i], result.value);
+    if (resolved) map.set(events[i].id, resolved);
   });
   return map;
 }
@@ -60,6 +65,8 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   const status = first(sp.status);
   const timing = first(sp.timing);
   const sector = first(sp.sector);
+  const minMarketCapB = first(sp.minMarketCapB);
+  const minMarketCap = parseMinMarketCapBillions(minMarketCapB);
   const universeParam = first(sp.universe);
   const universe = universeParam === "popular" || universeParam === "all" ? universeParam : undefined;
   const view = first(sp.view) === "table" ? "table" : "calendar";
@@ -72,15 +79,17 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     universe,
     sector: sector || undefined,
     status: status === "upcoming" || status === "reported" ? status : undefined,
+    minMarketCap,
     timing: (["before_open", "after_close", "during_market", "unknown"] as const).includes(
       timing as EarningsTiming,
     )
       ? (timing as EarningsTiming)
       : undefined,
   });
+  const dataUnavailable = calendar.issues.length ? dataIssueText() : null;
 
   const companies = await getCompanyProfiles(calendar.events.map((event) => event.ticker));
-  const estimates = view === "table" ? await getEstimatesByTicker(calendar.events) : new Map<string, EarningsEstimates>();
+  const estimates = view === "table" ? await getEstimatesByEvent(calendar.events) : new Map<string, EarningsEstimates>();
   const byDay = new Map<string, EarningsEvent[]>();
   for (const event of calendar.events) {
     const list = byDay.get(event.reportDate) ?? [];
@@ -88,7 +97,14 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
     byDay.set(event.reportDate, list);
   }
 
-  const filterParams = Object.entries({ status, timing, sector, universe, view: view === "table" ? "table" : undefined })
+  const filterParams = Object.entries({
+    status,
+    timing,
+    sector,
+    universe,
+    minMarketCapB: minMarketCap == null ? undefined : minMarketCapB,
+    view: view === "table" ? "table" : undefined,
+  })
     .filter(([, v]) => v)
     .map(([k, v]) => [k, v!] as [string, string]);
   const monthHref = (m: string) =>
@@ -149,6 +165,16 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
             className={`${inputCls} w-36`}
             aria-label={t.calendarPage.sector}
           />
+          <input
+            type="number"
+            name="minMarketCapB"
+            defaultValue={minMarketCap == null ? "" : minMarketCapB}
+            min="0"
+            step="1"
+            placeholder="Min market cap ($B)"
+            className={`${inputCls} w-44`}
+            aria-label="Minimum market cap in billions of US dollars"
+          />
           <button type="submit" className="label border border-accent px-3 py-2 text-accent transition-colors hover:bg-accent hover:text-canvas">
             {t.calendarPage.apply}
           </button>
@@ -184,7 +210,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
           <EventsTable events={calendar.events} companies={companies} estimates={estimates} t={t} lang={lang} />
         )}
         {calendar.events.length === 0 && (
-          <p className="mt-3 text-center text-sm text-ink-faint">{t.calendarPage.emptyMonth}</p>
+          <p className="mt-3 text-center text-sm text-ink-faint">{dataUnavailable ?? t.calendarPage.emptyMonth}</p>
         )}
       </section>
 
@@ -318,7 +344,7 @@ function EventsTable({
         <tbody>
           {events.map((event) => {
             const company = companies.get(event.ticker);
-            const estimate = estimates.get(event.ticker);
+            const estimate = estimates.get(event.id);
             return (
               <tr key={event.id} className="border-t border-line transition-colors hover:bg-surface-2">
                 <td className="num px-4 py-3 text-ink">
@@ -359,3 +385,7 @@ const navBtn =
   "num border border-line-strong px-2.5 py-1.5 text-sm text-ink-soft transition-colors hover:border-accent hover:text-accent";
 const inputCls =
   "num border border-line-strong bg-surface px-2.5 py-2 text-sm text-ink placeholder:text-ink-faint focus:border-accent focus:outline-none";
+
+function dataIssueText() {
+  return "Data service temporarily unavailable. 数据服务暂时不可用。";
+}

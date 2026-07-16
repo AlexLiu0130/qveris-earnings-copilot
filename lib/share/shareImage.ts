@@ -1,5 +1,5 @@
 import type { EarningsAnalysis } from "@/lib/earnings/types";
-import { fmtEps, fmtMoney, fmtPct } from "@/lib/formatting/format";
+import { buildShareConclusion, buildShareMetrics, buildShareSupportingBullets } from "@/lib/share/shareCard";
 
 export function buildShareImageSvg(analysis: EarningsAnalysis) {
   const zh = analysis.language === "zh";
@@ -24,17 +24,14 @@ export function buildShareImageSvg(analysis: EarningsAnalysis) {
         maintained: "maintained",
         provided: "provided",
       };
-  const reaction = fmtPct(analysis.marketReaction?.closeChangePct);
-  const reactionTag = analysis.marketReaction?.closeChangePct == null
+  const metrics = buildShareMetrics(analysis);
+  const reactionTag = metrics.reaction.tone == null
     ? ""
-    : analysis.marketReaction.closeChangePct >= 0 ? (zh ? "正向" : "positive") : (zh ? "负向" : "negative");
-  const conclusion = zh
-    ? `${analysis.company?.name ?? analysis.ticker}：营收${verdict[analysis.beatMiss?.revenue ?? "unavailable"]}，EPS ${verdict[analysis.beatMiss?.eps ?? "unavailable"]}，收盘反应 ${reaction === "unavailable" ? "暂无" : reaction}。`
-    : `${analysis.company?.name ?? analysis.ticker}: revenue ${verdict[analysis.beatMiss?.revenue ?? "unavailable"]}, EPS ${verdict[analysis.beatMiss?.eps ?? "unavailable"]}, close reaction ${reaction}.`;
+    : metrics.reaction.tone >= 0 ? (zh ? "正向" : "positive") : (zh ? "负向" : "negative");
+  const conclusion = buildShareConclusion(analysis);
   const takeaways = [
-    analysis.results?.guidanceText,
-    ...analysis.summaryBullets.filter((item) => item !== analysis.oneLineVerdict),
-    ...analysis.keyDrivers,
+    metrics.guidance.sourceIds.length ? analysis.results?.guidanceText : undefined,
+    ...buildShareSupportingBullets(analysis).map((item) => item.text),
   ].filter((item): item is string => Boolean(item)).slice(0, 2);
   const sourceLine = zh
     ? `${analysis.sources.length} 个来源 · 证据质量 ${confidenceZh[analysis.confidence.label]} · 仅供研究参考`
@@ -52,10 +49,10 @@ export function buildShareImageSvg(analysis: EarningsAnalysis) {
   <line x1="78" y1="264" x2="1122" y2="264" stroke="#e3ebf5" stroke-width="2"/>
   ${textLines(conclusion, 80, 310, 34, 42, "#1f2a3d", "Georgia, 'Times New Roman', serif", zh ? 21 : 54, 2)}
   <rect x="80" y="372" width="1040" height="92" fill="#eef3f9" stroke="#e3ebf5"/>
-  ${metric(108, 404, zh ? "营收" : "Revenue", `${fmtMoney(analysis.results?.revenueActual)} / ${fmtMoney(analysis.estimates?.revenueEstimate)}`, verdict[analysis.beatMiss?.revenue ?? "unavailable"])}
-  ${metric(358, 404, "EPS", `${fmtEps(analysis.results?.epsActual)} / ${fmtEps(analysis.estimates?.epsEstimate)}`, verdict[analysis.beatMiss?.eps ?? "unavailable"])}
-  ${metric(610, 404, zh ? "收盘反应" : "Close reaction", reaction, reactionTag)}
-  ${metric(850, 404, zh ? "指引" : "Guidance", verdict[analysis.beatMiss?.guidance ?? "unavailable"], "")}
+  ${metric(108, 404, zh ? "营收" : "Revenue", `${metrics.revenue.actual} / ${metrics.revenue.estimate}`, metrics.revenue.verdict ? verdict[metrics.revenue.verdict] : "")}
+  ${metric(358, 404, "EPS", `${metrics.eps.actual} / ${metrics.eps.estimate}`, metrics.eps.verdict ? verdict[metrics.eps.verdict] : "")}
+  ${metric(610, 404, zh ? "收盘反应" : "Close reaction", metrics.reaction.value, reactionTag)}
+  ${metric(850, 404, zh ? "指引" : "Guidance", metrics.guidance.value, "")}
   ${takeaways.map((item, index) => textLines(`${String(index + 1).padStart(2, "0")} ${item}`, 82, 506 + index * 31, 21, 25, index === 0 ? "#0b7a3b" : "#4a5872", "Inter, Arial, sans-serif", zh ? 38 : 86, 1)).join("")}
   <line x1="78" y1="552" x2="1122" y2="552" stroke="#e3ebf5" stroke-width="2"/>
   <text x="80" y="580" font-size="15" letter-spacing="2.5" font-family="SF Mono, ui-monospace, monospace" fill="#6b7890">${escapeXml(sourceLine.toUpperCase())}</text>

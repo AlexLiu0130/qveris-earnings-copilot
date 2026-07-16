@@ -1,7 +1,10 @@
 import type { AnalyzeEarningsRequest, EarningsAnalysis } from "@/lib/earnings/types";
 
+const ANALYSIS_ID_SEQUENCE_KEY = Symbol.for("qveris.earnings.analysisId.sequence.v1");
+
 export function buildAnalysisId(input: Pick<EarningsAnalysis, "ticker" | "mode" | "generatedAt">) {
-  return `${input.ticker}-${input.mode}-${compactTimestamp(input.generatedAt)}`;
+  const base = `${normalizeTicker(input.ticker)}-${input.mode}-${compactTimestamp(input.generatedAt)}`;
+  return `${base}-${nextSequence().toString(36).padStart(2, "0")}`;
 }
 
 export function requestKey(request: AnalyzeEarningsRequest) {
@@ -20,5 +23,20 @@ export function requestKey(request: AnalyzeEarningsRequest) {
 }
 
 function compactTimestamp(value: string) {
-  return value.replace(/[-:.]/g, "").replace(/\.\d+Z$/, "Z");
+  const timestamp = new Date(value);
+  if (Number.isFinite(timestamp.getTime())) {
+    return timestamp.toISOString().replace(/\.\d{3}Z$/, "Z").replace(/[-:]/g, "");
+  }
+  return value.replace(/\.\d+Z$/, "Z").replace(/[-:]/g, "");
+}
+
+function normalizeTicker(value: string) {
+  return value.trim().toUpperCase().replace(/^\$/, "");
+}
+
+function nextSequence() {
+  const global = globalThis as typeof globalThis & Partial<Record<symbol, number>>;
+  const sequence = (global[ANALYSIS_ID_SEQUENCE_KEY] ?? 0) + 1;
+  global[ANALYSIS_ID_SEQUENCE_KEY] = sequence;
+  return sequence;
 }

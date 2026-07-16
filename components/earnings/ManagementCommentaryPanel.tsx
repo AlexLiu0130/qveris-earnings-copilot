@@ -1,10 +1,10 @@
-import type { EarningsAnalysis } from "@/lib/earnings/types";
+import type { ClaimSourceIds, EarningsAnalysis } from "@/lib/earnings/types";
 import { getDict } from "@/lib/i18n/server";
 import { Cite } from "./Cite";
 
 export async function ManagementCommentaryPanel({ analysis }: { analysis: EarningsAnalysis }) {
   const { t } = await getDict();
-  const { results, transcript, keyDrivers, qualityOfEarnings, riskSignals, sources } = analysis;
+  const { results, transcript, keyDrivers, qualityOfEarnings, riskSignals, sources, claimSourceIds } = analysis;
   const hasNarrative =
     !!results?.guidanceText || (results?.segmentHighlights?.length ?? 0) > 0 || (transcript?.keyQuotes?.length ?? 0) > 0;
 
@@ -65,9 +65,9 @@ export async function ManagementCommentaryPanel({ analysis }: { analysis: Earnin
       <div className="hairline mt-5 pt-4">
         <h3 className="label mb-3 text-accent">{t.commentary.signals}</h3>
         <div className="grid gap-6 md:grid-cols-3">
-          <SignalList title={t.drivers.keyDrivers} items={keyDrivers} marker="▲" markerClass="text-beat" empty={t.drivers.nothingFlagged} />
-          <SignalList title={t.drivers.quality} items={qualityOfEarnings} marker="§" markerClass="text-accent-dim" empty={t.drivers.nothingFlagged} />
-          <SignalList title={t.drivers.riskSignals} items={riskSignals} marker="!" markerClass="text-miss" empty={t.drivers.nothingFlagged} />
+          <SignalList title={t.drivers.keyDrivers} items={keyDrivers} claimIds={claimSourceIds?.keyDrivers ?? []} sources={sources} marker="▲" markerClass="text-beat" empty={t.drivers.nothingFlagged} />
+          <SignalList title={t.drivers.quality} items={qualityOfEarnings} claimIds={claimSourceIds?.qualityOfEarnings ?? []} sources={sources} marker="§" markerClass="text-accent-dim" empty={t.drivers.nothingFlagged} />
+          <SignalList title={t.drivers.riskSignals} items={riskSignals} claimIds={claimSourceIds?.riskSignals ?? []} sources={sources} marker="!" markerClass="text-miss" empty={t.drivers.nothingFlagged} />
         </div>
       </div>
     </section>
@@ -77,25 +77,36 @@ export async function ManagementCommentaryPanel({ analysis }: { analysis: Earnin
 function SignalList({
   title,
   items,
+  claimIds,
+  sources,
   marker,
   markerClass,
   empty,
 }: {
   title: string;
   items: string[];
+  claimIds: ClaimSourceIds[];
+  sources: EarningsAnalysis["sources"];
   marker: string;
   markerClass: string;
   empty: string;
 }) {
+  const sourced = items.flatMap((item, index) => {
+    const ids = claimIds[index];
+    return Array.isArray(ids) && ids.length ? [{ item, ids }] : [];
+  });
   return (
     <div>
       <h4 className="label mb-2">{title}</h4>
-      {items.length ? (
+      {sourced.length ? (
         <ul className="space-y-1.5">
-          {items.map((item, i) => (
+          {sourced.map(({ item, ids }, i) => (
             <li key={i} className="flex gap-2.5 text-sm text-ink-soft">
               <span className={`num shrink-0 ${markerClass}`}>{marker}</span>
-              {item}
+              <span>
+                {item}
+                <Cite ids={ids} sources={sources} />
+              </span>
             </li>
           ))}
         </ul>

@@ -1,6 +1,6 @@
 import type { EarningsCapabilityProvider } from "@/lib/capabilities/EarningsCapabilityProvider";
 import { addDaysIso, todayIso } from "@/lib/earnings/date";
-import type { EarningsCalendarParams, HistoricalPriceParams, NewsParams } from "@/lib/earnings/types";
+import type { EarningsCalendarParams, EarningsEvent, HistoricalPriceParams, NewsParams } from "@/lib/earnings/types";
 import {
   mockAnalystRevisions,
   mockCompany,
@@ -11,10 +11,16 @@ import {
   mockNews,
   mockQuote,
   mockResults,
+  mockSources,
   mockTranscript,
+  MOCK_TICKERS,
 } from "@/lib/capabilities/mockData";
 
 export class MockEarningsCapabilityProvider implements EarningsCapabilityProvider {
+  getSourceRefs() {
+    return MOCK_TICKERS.flatMap((ticker) => mockSources(ticker));
+  }
+
   async getCompanyProfile(ticker: string) {
     return mockCompany(ticker);
   }
@@ -28,8 +34,8 @@ export class MockEarningsCapabilityProvider implements EarningsCapabilityProvide
       .filter((event) => !params.timing || event.timing === params.timing);
   }
 
-  async getEarningsEstimates(ticker: string, eventId?: string) {
-    return mockEstimates(ticker, eventId);
+  async getEarningsEstimates(ticker: string, event?: EarningsEvent | null) {
+    return mockEstimates(ticker, event?.id);
   }
 
   async getEarningsResults(ticker: string, event?: import("@/lib/earnings/types").EarningsEvent | null) {

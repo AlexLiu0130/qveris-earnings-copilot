@@ -32,7 +32,7 @@ test("data conflicts compare actuals only with the matching fiscal period", () =
       epsEstimate: 2,
       sourceIds: ["calendar"],
     },
-    estimates: { ticker: "PEP", revenueEstimate: 120, epsEstimate: 2.5, sourceIds: ["estimates"] },
+    estimates: { ticker: "PEP", revenueEstimate: 100, epsEstimate: 2, sourceIds: ["estimates"] },
     results: { ticker: "PEP", revenueActual: 90, sourceIds: ["results"] },
     financials: [{ date: "2026-03-31", fiscalYear: 2026, period: "Q1", revenue: 80, sourceIds: ["financials"] }],
   });
@@ -53,13 +53,25 @@ test("transcript period comes from the resolved earnings event", () => {
   assert.equal(transcriptPeriod(null), null);
 });
 
-test("estimate selection uses the latest fiscal period before the report date", () => {
+test("estimate selection uses the event fiscal quarter identity", () => {
+  const event = {
+    id: "MU-2026-06-24",
+    ticker: "MU",
+    fiscalPeriod: "Q3",
+    fiscalYear: 2026,
+    reportDate: "2026-06-24",
+    timing: "after_close" as const,
+    status: "reported" as const,
+    sourceIds: ["calendar"],
+  };
   const selected = selectEstimate([
-    { horizon: "quarterly", date: "2026-11-30", eps_estimate_average: 34.8 },
-    { horizon: "quarterly", date: "2026-08-31", eps_estimate_average: 31.3 },
-    { horizon: "quarterly", date: "2026-05-31", eps_estimate_average: 20.3 },
-  ], "MU-2026-06-24");
-  assert.equal(selected?.date, "2026-05-31");
+    { horizon: "quarterly", fiscalYear: 2026, fiscalPeriod: "Q4", eps_estimate_average: 34.8 },
+    { horizon: "quarterly", fiscalYear: 2026, fiscalPeriod: "Q3", eps_estimate_average: 20.3 },
+  ], event);
+  assert.equal(selected?.eps_estimate_average, 20.3);
+  assert.equal(selectEstimate([
+    { horizon: "quarterly", fiscalYear: 2026, fiscalPeriod: "Q2", eps_estimate_average: 31.3 },
+  ], event), null);
 });
 
 test("MU surprise uses the same-event calendar pair", () => {
@@ -92,6 +104,92 @@ test("MU surprise uses the same-event calendar pair", () => {
   assert.deepEqual({ revenue: verdict.revenue, eps: verdict.eps }, { revenue: "beat", eps: "beat" });
 });
 
+test("small estimate rounding differences are not reported as conflicts", () => {
+  const event = {
+    id: "NVDA-2026-08-26",
+    ticker: "NVDA",
+    fiscalPeriod: "Q2",
+    fiscalYear: 2026,
+    reportDate: "2026-08-26",
+    timing: "after_close" as const,
+    status: "upcoming" as const,
+    revenueEstimate: 1000,
+    epsEstimate: 2,
+    sourceIds: ["event-source"],
+  };
+
+  assert.deepEqual(detectDataConflicts({
+    event,
+    estimates: {
+      ticker: "NVDA",
+      eventId: event.id,
+      revenueEstimate: 1004,
+      epsEstimate: 2.009,
+      sourceIds: ["provider-source"],
+    },
+    results: null,
+    financials: [],
+  }), []);
+});
+
+test("event-resolved estimates do not report provider trend mismatch as a conflict", () => {
+  const event = {
+    id: "MU-2026-06-24",
+    ticker: "MU",
+    fiscalPeriod: "Q3",
+    fiscalYear: 2026,
+    reportDate: "2026-06-24",
+    timing: "after_close" as const,
+    status: "reported" as const,
+    revenueEstimate: 36_923_508_824,
+    epsEstimate: 21.4019,
+    sourceIds: ["calendar"],
+  };
+  const providerTrend = {
+    ticker: "MU",
+    eventId: event.id,
+    revenueEstimate: 35_251_836_320,
+    epsEstimate: 20.2843,
+    estimateCount: 31,
+    sourceIds: ["provider-estimate-trend"],
+  };
+  const resolved = resolveEventEstimates(event, providerTrend);
+
+  assert.deepEqual(detectDataConflicts({
+    event,
+    estimates: resolved,
+    results: null,
+    financials: [],
+  }), []);
+
+  assert.equal(resolved?.revenueEstimate, event.revenueEstimate);
+  assert.equal(resolved?.epsEstimate, event.epsEstimate);
+  assert.equal(resolved?.estimateCount, 31);
+  assert.deepEqual(resolved?.fieldSourceIds?.revenueEstimate, ["calendar"]);
+  assert.deepEqual(resolved?.fieldSourceIds?.epsEstimate, ["calendar"]);
+  assert.deepEqual(resolved?.sourceIds, ["calendar", "provider-estimate-trend"]);
+});
+
+test("same-period actual financial statement conflict is still reported", () => {
+  const conflicts = detectDataConflicts({
+    event: {
+      id: "MU-2026-06-24",
+      ticker: "MU",
+      fiscalPeriod: "Q3",
+      fiscalYear: 2026,
+      reportDate: "2026-06-24",
+      timing: "after_close",
+      status: "reported",
+      sourceIds: ["calendar"],
+    },
+    estimates: null,
+    results: { ticker: "MU", revenueActual: 41_456_000_000, sourceIds: ["calendar"] },
+    financials: [{ date: "2026-05-31", fiscalYear: 2026, period: "Q3", revenue: 35_000_000_000, sourceIds: ["statement"] }],
+  });
+
+  assert.deepEqual(conflicts, ["Reported revenue differs materially from the matching quarterly financial statement."]);
+});
+
 test("period selection never relabels an older quarter", () => {
   const selected = selectFiscalPeriod([
     { fiscalYear: 2026, period: "Q2", value: 1 },
@@ -106,6 +204,46 @@ test("period selection never relabels an older quarter", () => {
     sourceIds: ["calendar"],
   });
   assert.equal(selected, undefined);
+});
+
+test("event period selection requires fiscal year and quarter identity", () => {
+  const rows = [
+    { fiscalYear: 2026, period: "Q3", value: 1 },
+    { fiscalYear: 2026, period: "Q2", value: 2 },
+  ];
+  const event = {
+    id: "MU-2026-06-24",
+    ticker: "MU",
+    reportDate: "2026-06-24",
+    timing: "after_close" as const,
+    status: "reported" as const,
+    sourceIds: ["calendar"],
+  };
+
+  assert.equal(selectFiscalPeriod(rows, { ...event, fiscalYear: 2026 }), undefined);
+  assert.equal(selectFiscalPeriod(rows, { ...event, fiscalPeriod: "Q3" }), undefined);
+  assert.equal(selectFiscalPeriod(rows, event), undefined);
+  assert.deepEqual(selectFiscalPeriod(rows, { ...event, fiscalYear: 2026, fiscalPeriod: "Q3" }), rows[0]);
+});
+
+test("conflict detection does not compare actuals against unidentified statement rows", () => {
+  const conflicts = detectDataConflicts({
+    event: {
+      id: "NKE-2026-06-25",
+      ticker: "NKE",
+      fiscalPeriod: "Q4",
+      fiscalYear: 2026,
+      reportDate: "2026-06-25",
+      timing: "after_close",
+      status: "reported",
+      sourceIds: ["calendar"],
+    },
+    estimates: null,
+    results: { ticker: "NKE", revenueActual: 10, sourceIds: ["results"] },
+    financials: [{ date: "2026-05-31", revenue: 40, sourceIds: ["statement"] }],
+  });
+
+  assert.deepEqual(conflicts, []);
 });
 
 test("prepared remarks yield numeric management guidance", () => {

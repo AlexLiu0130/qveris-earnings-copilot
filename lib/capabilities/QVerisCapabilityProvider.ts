@@ -24,32 +24,58 @@ import type {
 } from "@/lib/earnings/types";
 import { calendarSymbolsForUniverse } from "@/lib/earnings/universe";
 import { filterRelevantNews, selectFiscalPeriod } from "@/lib/earnings/dataQuality";
+import { readQVerisFetchCache, writeQVerisFetchCache } from "@/lib/capabilities/qverisFetchCache";
 
 const DEFAULT_BASE_URL = "https://qveris.ai/api/v1";
-const CALENDAR_TOOL_ID = "finnhub.calendar.earnings.retrieve.v1.0e57aadf";
+const CALENDAR_TOOL_ID = "finnhub.calendar.earnings.retrieve.v1.1552775d";
 const PROFILE_TOOL_ID = "finnhub.company.profile.v2.get.v1";
-const EARNINGS_HISTORY_TOOL_ID = "alphavantage.earnings.retrieve.v1.7aca3c4a";
-const ESTIMATES_TOOL_ID = "alphavantage.earnings_estimates.retrieve.v1.7aca3c4a";
+const EARNINGS_HISTORY_TOOL_ID = "alphavantage.earnings.retrieve.v1.467a92c0";
+const ESTIMATES_TOOL_ID = "alphavantage.earnings_estimates.retrieve.v1.467a92c0";
 const QUOTE_TOOL_ID = "eodhd.live_v2.us_quote_delayed.retrieve.v1.f0e13d45";
 const HISTORICAL_PRICE_TOOL_ID = "alphavantage.time-series.daily-adjusted.v1";
 const NEWS_TOOL_ID = "qveris_finance.finance_news_aggregation_v1";
-const FILINGS_TOOL_ID = "finnhub.stock.filings.retrieve.v1.27aa1125";
+const FILINGS_CIK_TOOL_ID = "financialmodelingprep.stable.secfilingscompanysearch.symbol.retrieve.v1.5cf7397d";
+const FILINGS_SEARCH_TOOL_ID = "financialmodelingprep.stable.secfilingssearch.cik.retrieve.v1.6c73a2ce";
 const TRANSCRIPT_TOOL_ID = "alphavantage.earnings_call_transcript.query.v1.467a92c0";
 const INCOME_STATEMENT_TOOL_ID = "financialmodelingprep.stable.incomestatement.retrieve.v1.dd6d583f";
 const BALANCE_SHEET_TOOL_ID = "financialmodelingprep.stable.balancesheetstatement.retrieve.v1.bce203b1";
 const CASH_FLOW_TOOL_ID = "financialmodelingprep.stable.cashflowstatement.retrieve.v1.dfeb9354";
 const REVENUE_SEGMENT_TOOL_ID = "financialmodelingprep.stable.revenueproductsegmentation.retrieve.v1.8faa287f";
+const RAW_CACHE_NAMESPACE_VERSION = 1;
+const MAX_FULL_CONTENT_BYTES = 2 * 1024 * 1024;
+const TRUSTED_FULL_CONTENT_HOSTS = new Set([
+  "qveris.ai",
+  "oss.qveris.cn",
+  "storage.googleapis.com",
+  "s3.amazonaws.com",
+]);
+
+export type QVerisCapabilityErrorType = "config_error" | "http_error" | "business_error" | "timeout" | "network_error" | (string & {});
+
+export class QVerisCapabilityError extends Error {
+  constructor(
+    readonly toolId: string,
+    readonly errorType: QVerisCapabilityErrorType,
+    readonly statusCode?: number,
+    message = `QVeris capability failed: ${toolId}`,
+  ) {
+    super(message);
+    this.name = "QVerisCapabilityError";
+  }
+}
 
 export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
   private readonly baseUrl: string;
   private readonly apiKey?: string;
+  private readonly cacheNamespace: string;
   private readonly sourceRefs = new Map<string, SourceRef>();
   private readonly executions = new Map<string, Promise<{ data: unknown; executionId?: string; success: boolean }>>();
 
   constructor(options: { baseUrl?: string; apiKey?: string } = {}) {
     const env = localEnv();
-    this.baseUrl = (options.baseUrl ?? env.QVERIS_BASE_URL ?? DEFAULT_BASE_URL).replace(/\/$/, "");
+    this.baseUrl = (options.baseUrl ?? env.QVERIS_BASE_URL ?? DEFAULT_BASE_URL).replace(/\/+$/, "");
     this.apiKey = options.apiKey ?? env.QVERIS_API_KEY;
+    this.cacheNamespace = `${this.baseUrl}:qveris-provider-cache:v${RAW_CACHE_NAMESPACE_VERSION}`;
   }
 
   getSourceRefs() {
@@ -74,15 +100,13 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
   }
 
   async getEarningsCalendar(params: EarningsCalendarParams): Promise<EarningsEvent[]> {
-    if (!this.apiKey) return [];
     const allowedSymbols = calendarSymbolsForUniverse(params.universe);
     const today = todayIso();
-    const ranges = calendarRanges(params.from, params.to);
-    const rows = await Promise.all(ranges.map((range) => this.execute(CALENDAR_TOOL_ID, range)));
+    const rows = await mapLimit(calendarRanges(params.from, params.to), 3, (range) => this.execute(CALENDAR_TOOL_ID, range));
     const seen = new Set<string>();
     return rows.flatMap((payload) => {
       const events = asRecord(payload.data)?.earningsCalendar;
-      if (!Array.isArray(events)) return [];
+      if (!Array.isArray(events)) throw new QVerisCapabilityError(CALENDAR_TOOL_ID, "business_error", undefined, "QVeris calendar payload missing earningsCalendar array");
       return events
         .filter((event): event is Record<string, unknown> => Boolean(asRecord(event)?.date))
         .filter((event) => {
@@ -116,13 +140,14 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
     });
   }
 
-  async getEarningsEstimates(ticker: string, eventId?: string): Promise<EarningsEstimates | null> {
+  async getEarningsEstimates(ticker: string, event?: string | EarningsEvent | null): Promise<EarningsEstimates | null> {
     const call = await this.execute(ESTIMATES_TOOL_ID, { symbol: ticker, function: "EARNINGS_ESTIMATES" });
     const data = parsePossiblyTruncated(call.data);
     const estimates = Array.isArray(asRecord(data)?.estimates) ? asRecord(data)!.estimates as Record<string, unknown>[] : [];
-    const selected = selectEstimate(estimates, eventId);
+    const selected = selectEstimate(estimates, event);
     if (!selected) return null;
     const sourceId = this.recordSource(ticker, "get_earnings_estimates", "QVeris consensus estimates", ESTIMATES_TOOL_ID, call.executionId);
+    const eventId = typeof event === "string" ? event : event?.id;
     return {
       ticker: ticker.toUpperCase(),
       eventId,
@@ -257,7 +282,7 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
     const balanceByDate = byDate(arrayRecords(balanceCall.data));
     const cashFlowByDate = byDate(arrayRecords(cashFlowCall.data));
 
-    return incomeRows.slice(0, limit).map((income) => {
+    return incomeRows.filter((income) => isQuarterlyPeriod(stringValue(income.period))).slice(0, limit).map((income) => {
       const date = stringValue(income.date) ?? todayIso();
       const balance = balanceByDate.get(date) ?? {};
       const cashFlow = cashFlowByDate.get(date) ?? {};
@@ -290,7 +315,7 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
     const symbol = ticker.toUpperCase();
     const call = await this.execute(REVENUE_SEGMENT_TOOL_ID, { symbol, period: "quarter" });
     const sourceId = this.recordSource(symbol, "get_revenue_segments", "QVeris revenue product segmentation", REVENUE_SEGMENT_TOOL_ID, call.executionId);
-    return arrayRecords(call.data).slice(0, limit).map((row) => {
+    return arrayRecords(call.data).filter((row) => isQuarterlyPeriod(stringValue(row.period))).slice(0, limit).map((row) => {
       const data = asRecord(row.data) ?? {};
       return {
         date: stringValue(row.date) ?? todayIso(),
@@ -330,13 +355,17 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
   }
 
   async getSecFilings(ticker: string, params: FilingParams = {}): Promise<FilingItem[]> {
+    const symbol = ticker.toUpperCase();
     const to = params.to ?? todayIso();
     const from = params.from ?? addDaysIso(to, -365);
-    const call = await this.execute(FILINGS_TOOL_ID, { symbol: ticker, from, to });
-    const rows = Array.isArray(call.data) ? call.data as Record<string, unknown>[] : [];
-    const sourceId = this.recordSource(ticker, "get_sec_filings", "QVeris SEC filings", FILINGS_TOOL_ID, call.executionId);
+    const cikCall = await this.execute(FILINGS_CIK_TOOL_ID, { symbol });
+    const cik = stringValue(asRecord(cikCall.data)?.cik) ?? stringValue(arrayRecords(cikCall.data)[0]?.cik);
+    if (!cik) return [];
+    const call = await this.execute(FILINGS_SEARCH_TOOL_ID, { cik, from, to, page: "0", limit: String(params.limit ?? 5) });
+    const rows = arrayRecords(call.data);
+    const sourceId = this.recordSource(symbol, "get_sec_filings", "QVeris SEC filings", FILINGS_SEARCH_TOOL_ID, call.executionId);
     const filings = rows.map((row, index): FilingItem => ({
-      id: stringValue(row.accessNumber) ?? `${ticker.toUpperCase()}-filing-${index}`,
+      id: stringValue(row.accessNumber) ?? `${symbol}-filing-${index}`,
       formType: normalizeFormType(stringValue(row.form) ?? stringValue(row.formType)),
       filedAt: stringValue(row.filedDate) ?? stringValue(row.filingDate) ?? stringValue(row.acceptedDate) ?? todayIso(),
       title: stringValue(row.form) ?? stringValue(row.formType),
@@ -354,12 +383,17 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
     const content = transcript.entries.map((entry) => stringValue(entry.content)).filter(Boolean).join("\n");
     if (!content) return { available: false, sourceIds: [] };
     const sourceId = this.recordSource(ticker, "get_earnings_transcript", "QVeris earnings call transcript", TRANSCRIPT_TOOL_ID, transcript.executionId);
+    const managementText = transcript.entries
+      .filter((entry) => transcriptRole(entry) === "management")
+      .map((entry) => stringValue(entry.content))
+      .filter(Boolean)
+      .join("\n");
     return {
       available: true,
-      managementTone: "neutral",
+      managementTone: toneFromDirectionalEvidence(managementText),
       guidanceTone: toneFromText(content, "guidance"),
-      riskLanguage: content.toLowerCase().includes("risk") ? "unchanged" : "unavailable",
-      repeatedQuestions: extractQuestionTopics(content),
+      riskLanguage: "unavailable",
+      repeatedQuestions: extractAnalystQuestionTopics(transcript.entries),
       managementAnswers: extractManagementAnswers(transcript.entries, [sourceId]),
       keyQuotes: [],
       sourceIds: [sourceId],
@@ -406,11 +440,37 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
     if (existing) return existing;
     const execution = this.executeOnce(toolId, parameters);
     this.executions.set(key, execution);
+    execution.then(
+      () => {
+        if (this.executions.get(key) === execution) this.executions.delete(key);
+      },
+      () => {
+        if (this.executions.get(key) === execution) this.executions.delete(key);
+      },
+    );
     return execution;
   }
 
   private async executeOnce(toolId: string, parameters: Record<string, unknown>): Promise<{ data: unknown; executionId?: string; success: boolean }> {
-    if (!this.apiKey) return { data: null, success: false };
+    if (!this.apiKey) throw new QVerisCapabilityError(toolId, "config_error", undefined, "QVeris API key is not configured");
+    const cached = await readQVerisFetchCache(toolId, parameters, this.cacheNamespace);
+    if (cached) return { ...cached, success: true };
+    let lastRetryableProviderError: QVerisCapabilityError | null = null;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const result = await this.fetchOnce(toolId, parameters);
+        await writeQVerisFetchCache(toolId, parameters, { data: result.data, executionId: result.executionId }, this.cacheNamespace);
+        return result;
+      } catch (error) {
+        if (!(error instanceof QVerisCapabilityError)) throw error;
+        if (!isRetryableProviderResponse(error.errorType) || attempt === 1) throw error;
+        lastRetryableProviderError = error;
+      }
+    }
+    throw lastRetryableProviderError ?? new QVerisCapabilityError(toolId, "business_error");
+  }
+
+  private async fetchOnce(toolId: string, parameters: Record<string, unknown>): Promise<{ data: unknown; executionId?: string; success: boolean }> {
     try {
       const res = await fetch(`${this.baseUrl}/tools/execute`, {
         method: "POST",
@@ -418,12 +478,23 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
         body: JSON.stringify({ tool_id: toolId, parameters }),
         signal: AbortSignal.timeout(15000),
       });
-      if (!res.ok) return { data: null, success: false };
+      if (!res.ok) throw new QVerisCapabilityError(toolId, "http_error", res.status);
       const payload = await res.json();
       const data = await hydrateFullContent(payload?.result?.data ?? payload?.result ?? null);
-      return { data, executionId: payload?.execution_id, success: Boolean(payload?.success) };
-    } catch {
-      return { data: null, success: false };
+      if (payload?.success === false) {
+        const error = capabilityErrorFromPayload(toolId, payload);
+        if (error) throw error;
+        if (isEmptyProviderData(data)) {
+          throw new QVerisCapabilityError(toolId, "provider_empty_response", numberValue(payload?.result?.status_code) ?? numberValue(payload?.status_code), "QVeris capability returned success:false with empty result data");
+        }
+        throw new QVerisCapabilityError(toolId, "business_error", numberValue(payload?.result?.status_code) ?? numberValue(payload?.status_code), "QVeris capability returned success:false");
+      }
+      const executionId = stringValue(payload?.execution_id);
+      return { data, executionId, success: payload?.success !== false };
+    } catch (error) {
+      if (error instanceof QVerisCapabilityError) throw error;
+      const name = error instanceof Error ? error.name : "";
+      throw new QVerisCapabilityError(toolId, name === "TimeoutError" || name === "AbortError" ? "timeout" : "network_error");
     }
   }
 }
@@ -433,6 +504,19 @@ function normalizeTiming(raw: unknown): EarningsEvent["timing"] {
   if (value.includes("bmo") || value.includes("before")) return "before_open";
   if (value.includes("amc") || value.includes("after")) return "after_close";
   return "unknown";
+}
+
+async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await fn(items[index]);
+    }
+  });
+  await Promise.all(workers);
+  return results;
 }
 
 function calendarRanges(from: string, to: string) {
@@ -496,6 +580,27 @@ function numberValue(value: unknown): number | undefined {
   return Number.isFinite(n) ? n : undefined;
 }
 
+function capabilityErrorFromPayload(toolId: string, payload: Record<string, unknown>) {
+  const result = asRecord(payload.result);
+  const data = asRecord(result?.data);
+  const errorType = stringValue(data?.reason_code) ?? stringValue(payload.error_type) ?? "business_error";
+  const statusCode = numberValue(result?.status_code) ?? numberValue(payload.status_code);
+  const message = stringValue(data?.error) ?? stringValue(payload.error) ?? stringValue(payload.message);
+  if (!data?.reason_code && !data?.error && !payload.error_type && !payload.error && !payload.message) return null;
+  return new QVerisCapabilityError(toolId, errorType, statusCode, message);
+}
+
+function isRetryableProviderResponse(errorType: QVerisCapabilityErrorType) {
+  return errorType === "provider_response_read_failed" || errorType === "provider_empty_response";
+}
+
+function isEmptyProviderData(value: unknown) {
+  if (value == null) return true;
+  if (Array.isArray(value)) return value.length === 0;
+  const record = asRecord(value);
+  return Boolean(record && (Object.keys(record).length === 0 || Object.values(record).every(isEmptyProviderData)));
+}
+
 function pct(numerator?: number, denominator?: number) {
   return numerator != null && denominator ? numerator / denominator : undefined;
 }
@@ -517,33 +622,105 @@ async function hydrateFullContent(value: unknown) {
   const url = stringValue(record?.full_content_file_url);
   if (!url) return value;
   try {
-    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
-    if (!res.ok) return value;
-    return await res.json();
+    const hydrated = await fetchTrustedJson(new URL(url));
+    return hydrated ?? value;
   } catch {
     return value;
   }
 }
 
-export function selectEstimate(rows: Record<string, unknown>[], eventId?: string) {
-  const eventDate = eventId?.match(/\d{4}-\d{2}-\d{2}/)?.[0];
+async function fetchTrustedJson(url: URL, redirects = 0): Promise<unknown | null> {
+  if (!isTrustedFullContentUrl(url) || redirects > 3) return null;
+  const res = await fetch(url, {
+    redirect: "manual",
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (res.status >= 300 && res.status < 400) {
+    const location = res.headers.get("location");
+    return location ? fetchTrustedJson(new URL(location, url), redirects + 1) : null;
+  }
+  if (!res.ok || isOversize(res.headers.get("content-length"))) return null;
+  const text = await readLimitedText(res);
+  if (text == null) return null;
+  return JSON.parse(text);
+}
+
+function isTrustedFullContentUrl(url: URL) {
+  const host = url.hostname.toLowerCase();
+  return url.protocol === "https:"
+    && (TRUSTED_FULL_CONTENT_HOSTS.has(host)
+      || host.endsWith(".qveris.ai")
+      || host.endsWith(".storage.googleapis.com")
+      || host.endsWith(".r2.dev")
+      || host.endsWith(".r2.cloudflarestorage.com")
+      || host.endsWith(".blob.core.windows.net")
+      || /\.s3[.-][a-z0-9-]+\.amazonaws\.com$/.test(host)
+      || host.endsWith(".s3.amazonaws.com"));
+}
+
+function isOversize(value: string | null) {
+  return value != null && numberValue(value) != null && numberValue(value)! > MAX_FULL_CONTENT_BYTES;
+}
+
+async function readLimitedText(res: Response) {
+  if (!res.body) return res.text();
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > MAX_FULL_CONTENT_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
+export function selectEstimate(rows: Record<string, unknown>[], event?: string | EarningsEvent | null) {
   const quarterly = rows.filter((row) => String(row.horizon ?? "").toLowerCase().includes("quarter"));
   const candidates = quarterly.length ? quarterly : rows;
-  if (!eventDate) return candidates[0] ?? null;
-  const dated = candidates
-    .map((row) => ({ row, date: stringValue(row.date) }))
-    .filter((item): item is { row: Record<string, unknown>; date: string } => Boolean(item.date));
-  return dated
-    .filter((item) => item.date <= eventDate)
-    .sort((a, b) => b.date.localeCompare(a.date))[0]?.row
-    ?? dated.filter((item) => item.date > eventDate).sort((a, b) => a.date.localeCompare(b.date))[0]?.row
-    ?? candidates[0]
-    ?? null;
+  if (!event) return candidates[0] ?? null;
+  if (typeof event === "object" && event) {
+    return candidates.find((row) => estimateMatchesEvent(row, event)) ?? null;
+  }
+  return null;
+}
+
+function estimateMatchesEvent(row: Record<string, unknown>, event: EarningsEvent) {
+  const eventQuarter = fiscalQuarter(event.fiscalPeriod);
+  if (event.fiscalYear == null || eventQuarter == null) return false;
+  return estimateFiscalYear(row) === event.fiscalYear && estimateFiscalQuarter(row) === eventQuarter;
+}
+
+function estimateFiscalYear(row: Record<string, unknown>) {
+  return numberValue(row.fiscalYear)
+    ?? numberValue(row.fiscal_year)
+    ?? yearFromIsoDate(stringValue(row.fiscalDateEnding) ?? stringValue(row.fiscal_date_ending) ?? stringValue(row.date));
+}
+
+function estimateFiscalQuarter(row: Record<string, unknown>) {
+  return fiscalQuarter(stringValue(row.fiscalPeriod) ?? stringValue(row.fiscal_period) ?? stringValue(row.period))
+    ?? fiscalQuarter(stringValue(row.fiscalQuarter) ?? stringValue(row.fiscal_quarter))
+    ?? fiscalQuarter(row.quarter == null ? undefined : `Q${row.quarter}`);
 }
 
 function normalizeFormType(value?: string): FilingItem["formType"] {
   if (value === "10-K" || value === "10-Q" || value === "8-K" || value === "DEF 14A") return value;
   return "other";
+}
+
+function isQuarterlyPeriod(value?: string) {
+  return /^Q[1-4]$/i.test(value ?? "");
 }
 
 export function transcriptPeriod(event?: EarningsEvent | null) {
@@ -553,7 +730,21 @@ export function transcriptPeriod(event?: EarningsEvent | null) {
 
 function selectHistoricalPeriod(rows: HistoricalEarnings[], event?: EarningsEvent | null) {
   if (!event) return rows[0];
-  return rows.find((row) => row.reportDate === event.reportDate);
+  return rows.find((row) => row.reportDate === event.reportDate && historicalFiscalYearMatches(row, event));
+}
+
+function historicalFiscalYearMatches(row: HistoricalEarnings, event: EarningsEvent) {
+  if (event.fiscalYear == null) return true;
+  return yearFromIsoDate(row.fiscalPeriod) === event.fiscalYear;
+}
+
+function yearFromIsoDate(value?: string) {
+  const match = value?.match(/^(\d{4})-\d{2}-\d{2}$/);
+  return match ? Number(match[1]) : undefined;
+}
+
+function fiscalQuarter(value?: string) {
+  return value?.match(/Q([1-4])/i)?.[1];
 }
 
 export function extractGuidanceText(entries: Record<string, unknown>[]) {
@@ -576,12 +767,23 @@ function toneFromText(text: string, keyword: string): TranscriptInsight["guidanc
   if (!lower.includes(keyword)) return "unavailable";
   if (/\b(strong|growth|accelerat|raise|raised|above)\b/.test(lower)) return "more_positive";
   if (/\b(weak|risk|uncertain|lower|below|slow)\b/.test(lower)) return "more_negative";
-  return "neutral";
+  return "unavailable";
 }
 
-function extractQuestionTopics(text: string) {
+function toneFromDirectionalEvidence(text: string): TranscriptInsight["managementTone"] {
   const lower = text.toLowerCase();
-  return TRANSCRIPT_TOPICS.filter(([, re]) => re.test(lower)).map(([label]) => label).slice(0, 5);
+  if (!lower) return "unavailable";
+  const positive = /\b(strong|growth|accelerat|raise|raised|above|improv|record)\b/.test(lower);
+  const negative = /\b(weak|risk|uncertain|lower|below|slow|declin|pressure)\b/.test(lower);
+  if (positive && !negative) return "more_positive";
+  if (negative && !positive) return "more_negative";
+  if (positive && negative) return "neutral";
+  return "unavailable";
+}
+
+function extractAnalystQuestionTopics(entries: Record<string, unknown>[]) {
+  const questions = entries.filter((entry) => transcriptRole(entry) === "analyst").map((entry) => stringValue(entry.content)).filter(Boolean).join("\n").toLowerCase();
+  return TRANSCRIPT_TOPICS.filter(([, re]) => re.test(questions)).map(([label]) => label).slice(0, 5);
 }
 
 const TRANSCRIPT_TOPICS = [
@@ -593,16 +795,40 @@ const TRANSCRIPT_TOPICS = [
 ] as const;
 
 function extractManagementAnswers(entries: Record<string, unknown>[], sourceIds: string[]) {
-  return TRANSCRIPT_TOPICS.flatMap(([topic, re]) => {
-    const entry = entries.find((item) => {
-      const content = stringValue(item.content);
-      if (!content || !re.test(content.toLowerCase())) return false;
-      const speaker = `${stringValue(item.speaker) ?? ""} ${stringValue(item.name) ?? ""} ${stringValue(item.title) ?? ""}`.toLowerCase();
-      return !/\b(analyst|operator|moderator)\b/.test(speaker);
+  return entries.flatMap((entry, index) => {
+    if (transcriptRole(entry) !== "analyst") return [];
+    const question = stringValue(entry.content) ?? "";
+    const topic = TRANSCRIPT_TOPICS.find(([, re]) => re.test(question.toLowerCase()));
+    if (!topic) return [];
+    const [label, re] = topic;
+    const answerEntry = entries.slice(index + 1).find((item) => {
+      const role = transcriptRole(item);
+      return role === "management" || role === "analyst";
     });
-    const answer = entry ? sentenceAround(stringValue(entry.content) ?? "", re) : undefined;
-    return answer ? [{ topic, answer, sourceIds }] : [];
+    if (!answerEntry || transcriptRole(answerEntry) !== "management") return [];
+    const answer = sentenceAround(stringValue(answerEntry.content) ?? "", re) ?? firstSentence(stringValue(answerEntry.content) ?? "");
+    return answer ? [{ topic: label, answer, sourceIds }] : [];
   }).slice(0, 4);
+}
+
+function transcriptRole(entry: Record<string, unknown>) {
+  const explicit = [
+    stringValue(entry.role),
+    stringValue(entry.speaker_role),
+    stringValue(entry.speakerRole),
+    stringValue(entry.participant_role),
+    stringValue(entry.participantRole),
+  ].filter(Boolean).join(" ").toLowerCase();
+  const explicitRole = roleFromText(explicit);
+  if (explicitRole !== "unknown") return explicitRole;
+  return roleFromText(`${stringValue(entry.speaker) ?? ""} ${stringValue(entry.name) ?? ""} ${stringValue(entry.title) ?? ""}`.toLowerCase());
+}
+
+function roleFromText(text: string) {
+  if (/\b(analyst|questioner)\b/.test(text)) return "analyst";
+  if (/\b(operator|moderator)\b/.test(text)) return "operator";
+  if (/\b(management|executive|company|ceo|cfo|coo|president|officer|founder|chair)\b/.test(text)) return "management";
+  return "unknown";
 }
 
 function sentenceAround(text: string, re: RegExp) {
@@ -612,4 +838,10 @@ function sentenceAround(text: string, re: RegExp) {
     .find((item) => re.test(item.toLowerCase()));
   if (!sentence) return undefined;
   return sentence.length > 260 ? `${sentence.slice(0, 257).trim()}...` : sentence.trim();
+}
+
+function firstSentence(text: string) {
+  const sentence = text.replace(/\s+/g, " ").split(/(?<=[.!?])\s+/)[0]?.trim();
+  if (!sentence) return undefined;
+  return sentence.length > 260 ? `${sentence.slice(0, 257).trim()}...` : sentence;
 }
