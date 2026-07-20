@@ -48,13 +48,22 @@ export function MultiQuarterPanel({ rows, sources, language }: { rows: QuarterCo
   const un = language === "zh" ? "不可用" : "unavailable";
 
   return (
-    <section className="panel p-5">
+    <section className="panel min-w-0 overflow-hidden p-5">
       <h2 className="font-display text-2xl italic text-ink">{t.title}</h2>
       {rows.length === 0 ? (
         <p className="mt-3 text-sm text-ink-faint">{t.empty}</p>
       ) : (
-        <div className="mt-4 overflow-x-auto">
-          <table className="num min-w-[1120px] w-full text-sm">
+        <div className="mt-4 max-w-full overflow-x-auto">
+          <table className="num w-full min-w-[710px] table-fixed text-sm">
+            <colgroup>
+              <col className="w-[70px]" />
+              <col className="w-[105px]" />
+              <col className="w-[135px]" />
+              <col className="w-[125px]" />
+              <col className="w-[85px]" />
+              <col className="w-[95px]" />
+              <col className="w-[95px]" />
+            </colgroup>
             <thead>
               <tr className="label text-left">
                 <th className="pb-2 pr-4 font-normal">{t.period}</th>
@@ -64,30 +73,18 @@ export function MultiQuarterPanel({ rows, sources, language }: { rows: QuarterCo
                 <th className="pb-2 pr-4 font-normal">{t.grossMargin}</th>
                 <th className="pb-2 pr-4 font-normal">{t.operatingMargin}</th>
                 <th className="pb-2 pr-4 font-normal">{t.netIncome}</th>
-                <th className="pb-2 pr-4 font-normal">{t.reaction}</th>
-                <th className="pb-2 pr-4 font-normal">{t.guidance}</th>
-                <th className="pb-2 font-normal">{t.sources}</th>
               </tr>
             </thead>
             <tbody className="[&_td]:border-t [&_td]:border-line [&_td]:py-2.5 [&_td]:pr-4 [&_td]:align-top">
               {rows.map((row) => (
                 <tr key={`${row.analysisId}:${row.eventKey}`}>
-                  <td className="text-ink">{row.fiscalPeriod ?? "-"}</td>
-                  <td className="text-ink-soft">{u(fmtDate(row.reportDate, language), un)}</td>
+                  <td className="whitespace-nowrap text-ink">{row.fiscalPeriod ?? "-"}</td>
+                  <td className="whitespace-nowrap text-ink-soft">{u(fmtDate(row.reportDate, language), un)}</td>
                   <td className="text-ink-soft">{metric(t.actual, sourced(fmtMoney(row.revenueActual), ids(row, "revenueActual"), un, sources), t.estimate, sourced(fmtMoney(row.revenueEstimate), ids(row, "revenueEstimate"), un, sources), t.surprise, sourced(fmtPct(row.revenueSurprisePct), surpriseIds(row, "revenueActual", "revenueEstimate"), un, sources))}</td>
                   <td className="text-ink-soft">{metric(t.actual, sourced(fmtEps(row.epsActual), ids(row, "epsActual"), un, sources), t.estimate, sourced(fmtEps(row.epsEstimate), ids(row, "epsEstimate"), un, sources), t.surprise, sourced(fmtPct(row.epsSurprisePct), surpriseIds(row, "epsActual", "epsEstimate"), un, sources))}</td>
-                  <td className="text-ink-soft">{ratio(row.grossMargin, ids(row, "grossMargin"), un, sources)}</td>
-                  <td className="text-ink-soft">{ratio(row.operatingMargin, ids(row, "operatingMargin"), un, sources)}</td>
-                  <td className="text-ink-soft">{sourced(fmtMoney(row.netIncome), ids(row, "netIncome"), un, sources)}</td>
-                  <td className="text-ink-soft">
-                    1d {sourced(fmtPct(row.oneDayMovePct), ids(row, "oneDayMovePct"), un, sources)}
-                    <br />
-                    5d {sourced(fmtPct(row.fiveDayMovePct), ids(row, "fiveDayMovePct"), un, sources)}
-                  </td>
-                  <td className="max-w-[220px] text-ink-soft">
-                    <span className="line-clamp-3">{sourced(row.guidanceText ?? "unavailable", ids(row, "guidanceText"), un, sources)}</span>
-                  </td>
-                  <td className="max-w-[220px] text-ink-faint">{sourceCell(row, t.sourceCount, un)}</td>
+                  <td className="whitespace-nowrap text-ink-soft">{ratio(row.grossMargin, ids(row, "grossMargin"), un, sources)}</td>
+                  <td className="whitespace-nowrap text-ink-soft">{ratio(row.operatingMargin, ids(row, "operatingMargin"), un, sources)}</td>
+                  <td className="whitespace-nowrap text-ink-soft">{sourced(fmtMoney(row.netIncome), ids(row, "netIncome"), un, sources)}</td>
                 </tr>
               ))}
             </tbody>
@@ -132,32 +129,4 @@ function surpriseIds(row: QuarterComparisonRow, actualField: QuarterComparisonFi
   const actualIds = ids(row, actualField);
   const estimateIds = ids(row, estimateField);
   return actualIds?.length && estimateIds?.length ? [...actualIds, ...estimateIds] : undefined;
-}
-
-function sourceCell(row: QuarterComparisonRow, countLabel: (count: number) => string, un: string) {
-  if (!sourceable(row)) return "-";
-  if (!row.sourceIds.length) return un;
-  return (
-    <span className="block space-y-1">
-      <span className="block">{countLabel(row.sourceIds.length)}</span>
-      <span className="block break-all text-[10px] leading-snug">{row.sourceIds.join(", ")}</span>
-    </span>
-  );
-}
-
-function sourceable(row: QuarterComparisonRow) {
-  const hasNumber = [
-    row.revenueActual,
-    row.revenueEstimate,
-    row.revenueSurprisePct,
-    row.epsActual,
-    row.epsEstimate,
-    row.epsSurprisePct,
-    row.grossMargin,
-    row.operatingMargin,
-    row.netIncome,
-    row.oneDayMovePct,
-    row.fiveDayMovePct,
-  ].some((value) => value != null);
-  return hasNumber || Boolean(row.guidanceText);
 }

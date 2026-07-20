@@ -67,6 +67,22 @@ test("merges only explicit date or fiscal-period matches", () => {
   assert.equal(rows.some((row) => row.eventKey === "hist-q-only"), true);
 });
 
+test("merges fiscal end dates that differ by a few reporting days", () => {
+  const rows = buildQuarterComparison([analysis("asml", "2026-07-20T00:00:00.000Z", {
+    historicalPattern: [
+      { eventId: "ASML-2025-09-30", fiscalPeriod: "2025-09-30", reportDate: "2025-10-15", epsActual: 5.49, sourceIds: ["history"] },
+    ],
+    financials: [
+      { date: "2025-09-28", fiscalYear: 2025, period: "Q3", revenue: 7_516_000_000, sourceIds: ["financials"] },
+    ],
+  })]);
+
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].fiscalPeriod, "Q3");
+  assert.equal(rows[0].epsActual, 5.49);
+  assert.equal(rows[0].revenueActual, 7_516_000_000);
+});
+
 test("does not merge same report date when fiscal identity differs", () => {
   const rows = buildQuarterComparison([
     analysis("q1", "2026-07-02T00:00:00.000Z", {

@@ -156,12 +156,12 @@ function candidates(analysis: EarningsAnalysis): InternalRow[] {
   }
 
   for (const item of analysis.financials) {
-    const fieldSourceIds = objectFieldSourceIds(item, {
-      revenueActual: item.revenue,
-      grossMargin: item.grossMargin,
-      operatingMargin: item.operatingMargin,
-      netIncome: item.netIncome,
-    });
+    const fieldSourceIds: QuarterComparisonRow["fieldSourceIds"] = {
+      revenueActual: item.revenue != null ? item.fieldSourceIds?.revenue ?? item.sourceIds : undefined,
+      grossMargin: item.grossMargin != null ? item.fieldSourceIds?.grossMargin ?? item.sourceIds : undefined,
+      operatingMargin: item.operatingMargin != null ? item.fieldSourceIds?.operatingMargin ?? item.sourceIds : undefined,
+      netIncome: item.netIncome != null ? item.fieldSourceIds?.netIncome ?? item.sourceIds : undefined,
+    };
     out.push(row(analysis, {
       eventKey: `financial:${item.date}`,
       fiscalYear: item.fiscalYear,
@@ -249,8 +249,12 @@ function hasFiscalIdentity(row: InternalRow) {
 function fiscalIdentityMatches(a: InternalRow, b: InternalRow) {
   return Boolean(
     (a.fiscalKey && b.fiscalKey && a.fiscalKey === b.fiscalKey)
-      || (a.fiscalEndDate && b.fiscalEndDate && a.fiscalEndDate === b.fiscalEndDate),
+      || (a.fiscalEndDate && b.fiscalEndDate && nearbyFiscalEnds(a.fiscalEndDate, b.fiscalEndDate)),
   );
+}
+
+function nearbyFiscalEnds(a: string, b: string) {
+  return Math.abs(Date.parse(a) - Date.parse(b)) <= 7 * 86_400_000;
 }
 
 function compatibleReportDateAlias(a: InternalRow, b: InternalRow) {
@@ -281,13 +285,13 @@ function eventIds(value: { sourceIds: string[] } | null | undefined, fieldValue:
 }
 
 function objectFieldSourceIds(
-  value: { sourceIds: string[] },
+  value: { sourceIds: string[]; fieldSourceIds?: Partial<Record<QuarterComparisonField, string[]>> },
   fields: Partial<Record<QuarterComparisonField, unknown>>,
 ): QuarterComparisonRow["fieldSourceIds"] {
   return Object.fromEntries(
     Object.entries(fields)
       .filter(([, fieldValue]) => fieldValue != null)
-      .map(([field]) => [field, value.sourceIds]),
+      .map(([field]) => [field, value.fieldSourceIds?.[field as QuarterComparisonField] ?? value.sourceIds]),
   ) as QuarterComparisonRow["fieldSourceIds"];
 }
 

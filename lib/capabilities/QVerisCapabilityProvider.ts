@@ -175,7 +175,7 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
   async getEarningsResults(ticker: string, event?: EarningsEvent | null): Promise<EarningsResults | null> {
     const [history, financials, segments, transcript] = await Promise.all([
       this.getHistoricalEarnings(ticker, 8),
-      this.getFinancialStatements(ticker, 4),
+      this.getFinancialStatements(ticker, 8),
       this.getRevenueSegments(ticker, 4).catch(() => []),
       this.getTranscriptEntries(ticker, event).catch(() => ({ entries: [], executionId: undefined })),
     ]);
@@ -184,7 +184,7 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
     const latestSegments = selectFiscalPeriod(segments, event);
     const guidanceText = extractGuidanceText(transcript.entries);
     const calendarSourceIds = event?.sourceIds ?? [];
-    const revenueSourceIds = event?.revenueActual != null ? calendarSourceIds : latestFinancials?.sourceIds;
+    const revenueSourceIds = event?.revenueActual != null ? calendarSourceIds : latestFinancials?.fieldSourceIds?.revenue ?? latestFinancials?.sourceIds;
     const epsSourceIds = event?.epsActual != null ? calendarSourceIds : latest?.sourceIds;
     const guidanceSourceIds = guidanceText
       ? [this.recordSource(ticker, "get_earnings_guidance", "QVeris prepared earnings guidance", TRANSCRIPT_TOOL_ID, transcript.executionId)]
@@ -210,9 +210,9 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
       fieldSourceIds: {
         revenueActual: revenueSourceIds,
         epsActual: epsSourceIds,
-        grossMargin: latestFinancials?.sourceIds,
-        operatingMargin: latestFinancials?.sourceIds,
-        netIncome: latestFinancials?.sourceIds,
+        grossMargin: latestFinancials?.fieldSourceIds?.grossMargin ?? latestFinancials?.sourceIds,
+        operatingMargin: latestFinancials?.fieldSourceIds?.operatingMargin ?? latestFinancials?.sourceIds,
+        netIncome: latestFinancials?.fieldSourceIds?.netIncome ?? latestFinancials?.sourceIds,
         guidanceText: guidanceSourceIds,
         segmentHighlights: latestSegments?.sourceIds,
       },
@@ -220,18 +220,41 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
   }
 
   async getHistoricalEarnings(ticker: string, limit = 8): Promise<HistoricalEarnings[]> {
-    const call = await this.execute(EARNINGS_HISTORY_TOOL_ID, { symbol: ticker, function: "EARNINGS" });
+    const [call, estimateCall] = await Promise.all([
+      this.execute(EARNINGS_HISTORY_TOOL_ID, { symbol: ticker, function: "EARNINGS" }),
+      this.execute(ESTIMATES_TOOL_ID, { symbol: ticker, function: "EARNINGS_ESTIMATES" }).catch(() => null),
+    ]);
     const data = parsePossiblyTruncated(call.data);
     const rows = Array.isArray(asRecord(data)?.quarterlyEarnings) ? asRecord(data)!.quarterlyEarnings as Record<string, unknown>[] : [];
     const sourceId = this.recordSource(ticker, "get_historical_earnings", "QVeris earnings history", EARNINGS_HISTORY_TOOL_ID, call.executionId);
-    return rows.slice(0, limit).map((row, index) => ({
-      eventId: `${ticker.toUpperCase()}-earnings-${stringValue(row.fiscalDateEnding) ?? index}`,
-      fiscalPeriod: stringValue(row.fiscalDateEnding),
-      reportDate: stringValue(row.reportedDate) ?? stringValue(row.fiscalDateEnding) ?? todayIso(),
-      epsActual: numberValue(row.reportedEPS),
-      epsEstimate: numberValue(row.estimatedEPS),
-      sourceIds: [sourceId],
-    }));
+    const estimateRows = Array.isArray(asRecord(parsePossiblyTruncated(estimateCall?.data))?.estimates)
+      ? asRecord(parsePossiblyTruncated(estimateCall?.data))!.estimates as Record<string, unknown>[]
+      : [];
+    const estimatesByDate = new Map(estimateRows.map((row) => [stringValue(row.date), row]));
+    const estimateSourceId = estimateCall
+      ? this.recordSource(ticker, "get_earnings_estimates", "QVeris consensus estimates", ESTIMATES_TOOL_ID, estimateCall.executionId)
+      : undefined;
+    return rows.slice(0, limit).map((row, index) => {
+      const fiscalPeriod = stringValue(row.fiscalDateEnding);
+      const estimate = estimatesByDate.get(fiscalPeriod);
+      const revenueEstimate = numberValue(estimate?.revenue_estimate_average);
+      const epsActual = numberValue(row.reportedEPS);
+      const epsEstimate = numberValue(row.estimatedEPS) ?? numberValue(estimate?.eps_estimate_average);
+      return {
+        eventId: `${ticker.toUpperCase()}-earnings-${fiscalPeriod ?? index}`,
+        fiscalPeriod,
+        reportDate: stringValue(row.reportedDate) ?? fiscalPeriod ?? todayIso(),
+        revenueEstimate,
+        epsActual,
+        epsEstimate,
+        sourceIds: [...new Set([sourceId, revenueEstimate != null ? estimateSourceId : undefined].filter(Boolean) as string[])],
+        fieldSourceIds: {
+          revenueEstimate: revenueEstimate != null && estimateSourceId ? [estimateSourceId] : undefined,
+          epsActual: epsActual != null ? [sourceId] : undefined,
+          epsEstimate: epsEstimate != null ? [sourceId] : undefined,
+        },
+      };
+    });
   }
 
   async getStockQuote(ticker: string): Promise<StockQuote | null> {
@@ -321,6 +344,12 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
         totalDebt: numberValue(balance.totalDebt),
         cashAndEquivalents: numberValue(balance.cashAndCashEquivalents),
         sourceIds: [incomeSource, balanceSource, cashFlowSource],
+        fieldSourceIds: {
+          revenue: revenue != null ? [incomeSource] : undefined,
+          grossMargin: grossProfit != null && revenue != null ? [incomeSource] : undefined,
+          operatingMargin: operatingIncome != null && revenue != null ? [incomeSource] : undefined,
+          netIncome: numberValue(income.netIncome) != null ? [incomeSource] : undefined,
+        },
       };
     });
   }
@@ -923,32 +952,26 @@ function toneFromDirectionalEvidence(text: string): TranscriptInsight["managemen
 }
 
 function extractAnalystQuestionTopics(entries: Record<string, unknown>[]) {
-  const questions = entries.filter((entry) => transcriptRole(entry) === "analyst").map((entry) => stringValue(entry.content)).filter(Boolean).join("\n").toLowerCase();
-  return TRANSCRIPT_TOPICS.filter(([, re]) => re.test(questions)).map(([label]) => label).slice(0, 5);
+  return [...new Set(entries
+    .filter((entry) => transcriptRole(entry) === "analyst")
+    .map((entry) => questionExcerpt(stringValue(entry.content) ?? ""))
+    .filter((question): question is string => Boolean(question)))]
+    .slice(0, 5);
 }
-
-const TRANSCRIPT_TOPICS = [
-  ["AI demand", /\b(ai|accelerator|gpu|data center)\b/],
-  ["Margins", /\bmargin|gross margin|operating margin\b/],
-  ["Guidance", /\bguidance|outlook|forecast\b/],
-  ["Supply chain", /\bsupply|inventory|capacity\b/],
-  ["China/export controls", /\bchina|export control|tariff\b/],
-] as const;
 
 function extractManagementAnswers(entries: Record<string, unknown>[], sourceIds: string[]) {
   return entries.flatMap((entry, index) => {
     if (transcriptRole(entry) !== "analyst") return [];
     const question = stringValue(entry.content) ?? "";
-    const topic = TRANSCRIPT_TOPICS.find(([, re]) => re.test(question.toLowerCase()));
+    const topic = questionExcerpt(question);
     if (!topic) return [];
-    const [label, re] = topic;
     const answerEntry = entries.slice(index + 1).find((item) => {
       const role = transcriptRole(item);
       return role === "management" || role === "analyst";
     });
     if (!answerEntry || transcriptRole(answerEntry) !== "management") return [];
-    const answer = sentenceAround(stringValue(answerEntry.content) ?? "", re) ?? firstSentence(stringValue(answerEntry.content) ?? "");
-    return answer ? [{ topic: label, answer, sourceIds }] : [];
+    const answer = answerExcerpt(stringValue(answerEntry.content) ?? "");
+    return answer ? [{ topic, answer, sourceIds }] : [];
   }).slice(0, 4);
 }
 
@@ -972,17 +995,17 @@ function roleFromText(text: string) {
   return "unknown";
 }
 
-function sentenceAround(text: string, re: RegExp) {
-  const sentence = text
-    .replace(/\s+/g, " ")
-    .split(/(?<=[.!?])\s+/)
-    .find((item) => re.test(item.toLowerCase()));
-  if (!sentence) return undefined;
-  return sentence.length > 260 ? `${sentence.slice(0, 257).trim()}...` : sentence.trim();
+function questionExcerpt(text: string) {
+  const normalized = text.replace(/\s+/g, " ").trim();
+  const questions = normalized.match(/[^?]+\?/g);
+  const excerpt = questions?.slice(-2).join(" ").trim() ?? "";
+  if (!excerpt) return undefined;
+  return excerpt.length > 280 ? `...${excerpt.slice(-277).trim()}` : excerpt;
 }
 
-function firstSentence(text: string) {
-  const sentence = text.replace(/\s+/g, " ").split(/(?<=[.!?])\s+/)[0]?.trim();
-  if (!sentence) return undefined;
-  return sentence.length > 260 ? `${sentence.slice(0, 257).trim()}...` : sentence;
+function answerExcerpt(text: string) {
+  const sentences = text.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/).filter(Boolean);
+  const excerpt = sentences.slice(0, sentences[0]?.length < 30 ? 3 : 2).join(" ");
+  if (!excerpt) return undefined;
+  return excerpt.length > 420 ? `${excerpt.slice(0, 417).trim()}...` : excerpt;
 }

@@ -1,28 +1,6 @@
 import type { Lang } from "@/lib/i18n/dict";
 import type { SourceRef, TranscriptInsight } from "@/lib/earnings/types";
 
-const TOPICS_ZH: Record<string, string> = {
-  "AI demand": "AI 需求",
-  Margins: "利润率",
-  Guidance: "业绩指引",
-  "Supply chain": "供应链",
-  "China/export controls": "中国与出口管制",
-  "AI capex durability": "AI 资本开支持续性",
-  "Margin trajectory": "利润率趋势",
-  "Demand visibility": "需求可见度",
-};
-
-const ANSWERS_ZH: Record<string, string> = {
-  "AI demand": "管理层回应围绕 AI 相关需求的持续性、客户投入节奏和产能消化情况展开。",
-  Margins: "管理层回应重点在毛利率路径、产品组合、折扣和运营效率对利润率的影响。",
-  Guidance: "管理层围绕后续展望解释收入、利润率、费用和 EPS 假设，指引是后续验证重点。",
-  "Supply chain": "管理层把供应链、库存或产能安排列为影响交付和利润率的执行变量。",
-  "China/export controls": "管理层承认中国、关税或出口管制相关不确定性仍需要持续跟踪。",
-  "AI capex durability": "管理层回应围绕 AI 资本开支持续性和客户投入节奏展开。",
-  "Margin trajectory": "管理层回应重点在利润率路径、产品组合和运营效率。",
-  "Demand visibility": "管理层回应围绕需求可见度、订单节奏和后续指引展开。",
-};
-
 const SOURCE_TITLES_ZH: Record<string, string> = {
   get_company_profile: "QVeris 公司档案",
   get_earnings_calendar: "QVeris 财报日历",
@@ -58,17 +36,8 @@ export function localizeGuidanceText(text: string | undefined, lang: Lang, fisca
   return `${period}指引：${metrics.join("；")}。`;
 }
 
-export function localizeTranscript(transcript: TranscriptInsight | null | undefined, lang: Lang) {
-  if (!transcript || lang === "en") return transcript;
-  return {
-    ...transcript,
-    repeatedQuestions: transcript.repeatedQuestions?.map((topic) => TOPICS_ZH[topic] ?? topic),
-    managementAnswers: transcript.managementAnswers?.map((item) => ({
-      ...item,
-      topic: TOPICS_ZH[item.topic] ?? item.topic,
-      answer: ANSWERS_ZH[item.topic] ?? item.answer,
-    })),
-  };
+export function localizeTranscript(transcript: TranscriptInsight | null | undefined, _lang: Lang) {
+  return transcript;
 }
 
 export function localizeSources(sources: SourceRef[], lang: Lang) {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { buildAnalysisId } from "@/lib/earnings/analysisId";
+import { buildAnalysisId, requestKey } from "@/lib/earnings/analysisId";
 
 test("analysis ids are unique for the same ticker and mode in the same second", () => {
   const ids = [
@@ -28,4 +28,8 @@ test("analysis ids do not reuse a same-second base after many other timestamp ba
   const next = buildAnalysisId(input);
   assert.notEqual(next, first);
   assert.match(next, /^NVDA-combined-20260115T120000Z-[0-9a-z]+$/);
+});
+
+test("request cache keys include the analysis pipeline version", () => {
+  assert.equal(JSON.parse(requestKey({ ticker: "JPM" })).analysisPipelineVersion, 2);
 });

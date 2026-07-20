@@ -11,7 +11,13 @@ test("numeric guidance is rendered in Chinese without changing values", () => {
   assert.equal(localized, "2026 财年Q4指引：营收 $50B（±$1B）；毛利率约 86%；运营费用约 $1.65B；EPS $31（±$1）。");
 });
 
-test("transcript topics follow the selected language", () => {
-  const localized = localizeTranscript({ available: true, repeatedQuestions: ["AI demand", "Margins"], sourceIds: [] }, "zh");
-  assert.deepEqual(localized?.repeatedQuestions, ["AI 需求", "利润率"]);
+test("transcript localization preserves sourced questions and answers verbatim", () => {
+  const transcript = {
+    available: true,
+    repeatedQuestions: ["How are AI investments affecting expenses?"],
+    managementAnswers: [{ topic: "AI investment", answer: "We are measuring returns by business line.", sourceIds: ["call"] }],
+    sourceIds: ["call"],
+  };
+  const localized = localizeTranscript(transcript, "zh");
+  assert.deepEqual(localized, transcript);
 });

@@ -65,7 +65,7 @@ export default async function TickerResearchPage({
       </div>
 
       <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
-        <main className="space-y-5">
+        <main className="min-w-0 space-y-5">
           <div className="rise rise-2">
             <VerdictSection analysis={analysis} t={t} />
           </div>

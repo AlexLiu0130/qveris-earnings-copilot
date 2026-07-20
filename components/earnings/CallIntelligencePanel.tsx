@@ -103,22 +103,14 @@ function buildCallConclusion(
   const management = toneText(transcript.managementTone, t);
   const guidance = toneText(transcript.guidanceTone, t);
   const risk = toneText(transcript.riskLanguage, t);
-  const topics = transcript.repeatedQuestions?.slice(0, 4).join(lang === "zh" ? "、" : ", ");
-  const answers = transcript.managementAnswers?.map((item) => item.topic).slice(0, 3).join(lang === "zh" ? "、" : ", ");
+  const questionCount = transcript.repeatedQuestions?.length ?? 0;
+  const answerCount = transcript.managementAnswers?.length ?? 0;
 
   if (lang === "zh") {
-    const topicClause = topics
-      ? `分析师追问集中在${topics}，说明后续判断重点应放在指引兑现、利润率路径和风险变化上。`
-      : "后续判断重点应放在指引兑现、利润率路径和风险变化上。";
-    const answerClause = answers ? `管理层回应覆盖${answers}。` : "";
-    return `管理层语气为${management}，指引语气为${guidance}，风险措辞为${risk}。${topicClause}${answerClause}`;
+    return `管理层语气为${management}，指引语气为${guidance}，风险措辞为${risk}。已从原始电话会记录提取 ${questionCount} 个分析师问题和 ${answerCount} 组紧邻的管理层回应。`;
   }
 
-  const topicClause = topics
-    ? `Analyst questions clustered around ${topics}, so the next read should focus on guidance delivery, margin path, and risk-language changes.`
-    : "The next read should focus on guidance delivery, margin path, and risk-language changes.";
-  const answerClause = answers ? ` Management responses covered ${answers}.` : "";
-  return `Management tone is ${management}, guidance tone is ${guidance}, and risk language is ${risk}. ${topicClause}${answerClause}`;
+  return `Management tone is ${management}, guidance tone is ${guidance}, and risk language is ${risk}. Extracted ${questionCount} analyst questions and ${answerCount} adjacent management responses from the original transcript.`;
 }
 
 function toneText(value: string | undefined, t: Dict) {

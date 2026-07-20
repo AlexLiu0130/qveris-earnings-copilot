@@ -87,8 +87,8 @@ export function resolveEventEstimates(
     epsEstimate: historical.epsEstimate,
     sourceIds: historical.sourceIds,
     fieldSourceIds: {
-      revenueEstimate: historical.revenueEstimate != null ? historical.sourceIds : undefined,
-      epsEstimate: historical.epsEstimate != null ? historical.sourceIds : undefined,
+      revenueEstimate: historical.fieldSourceIds?.revenueEstimate ?? (historical.revenueEstimate != null ? historical.sourceIds : undefined),
+      epsEstimate: historical.fieldSourceIds?.epsEstimate ?? (historical.epsEstimate != null ? historical.sourceIds : undefined),
     },
   } satisfies EarningsEstimates : null);
   if (!event || (event.revenueEstimate == null && event.epsEstimate == null)) return resolved;

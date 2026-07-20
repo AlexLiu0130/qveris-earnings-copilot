@@ -104,6 +104,7 @@ export interface HistoricalEarnings {
   oneDayMovePct?: number;
   fiveDayMovePct?: number;
   sourceIds: string[];
+  fieldSourceIds?: Partial<Record<"revenueActual" | "revenueEstimate" | "epsActual" | "epsEstimate" | "oneDayMovePct" | "fiveDayMovePct", string[]>>;
 }
 
 export interface StockQuote {
@@ -158,6 +159,7 @@ export interface FinancialStatementPeriod {
   totalDebt?: number;
   cashAndEquivalents?: number;
   sourceIds: string[];
+  fieldSourceIds?: Partial<Record<"revenue" | "grossMargin" | "operatingMargin" | "netIncome", string[]>>;
 }
 
 export interface SegmentRevenue {

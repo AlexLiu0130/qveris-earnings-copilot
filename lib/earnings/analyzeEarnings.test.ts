@@ -153,7 +153,7 @@ test("mock analysis keeps transcript absence explicit", async () => {
   assert.ok(analysis.missing.includes("transcript"));
 });
 
-test("mock analysis follows Chinese narrative language", async () => {
+test("mock analysis follows Chinese narrative language without rewriting transcript evidence", async () => {
   const analysis = await analyzeEarnings(
     { ticker: "NVDA", mode: "auto", language: "zh", includeTranscript: true, includeAiSummary: false },
     new DatedMockProvider(),
@@ -162,7 +162,7 @@ test("mock analysis follows Chinese narrative language", async () => {
   assert.match(analysis.summaryBullets[0], /[\u3400-\u9fff]/);
   assert.match(analysis.keyDrivers[0], /[\u3400-\u9fff]/);
   assert.match(analysis.confidence.reason, /[\u3400-\u9fff]/);
-  assert.ok(analysis.transcript?.repeatedQuestions?.every((item) => /[\u3400-\u9fff]/.test(item)));
+  assert.match(analysis.transcript?.repeatedQuestions?.[0] ?? "", /AI/);
 });
 
 test("calendar distinguishes provider failure from a real empty range", async () => {

@@ -287,7 +287,10 @@ test("earnings history and estimates use current inspected AlphaVantage tool ids
   });
 
   const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
-  assert.equal((await provider.getHistoricalEarnings("MU"))[0].epsActual, 1.2);
+  const history = await provider.getHistoricalEarnings("MU");
+  assert.equal(history[0].epsActual, 1.2);
+  assert.equal(history[0].revenueEstimate, 100);
+  assert.deepEqual(history[0].fieldSourceIds?.revenueEstimate, ["MU-qveris-get_earnings_estimates"]);
   assert.equal((await provider.getEarningsEstimates("MU"))?.revenueEstimate, 100);
   assert.equal(calls[0].body?.tool_id, "alphavantage.earnings.retrieve.v1.467a92c0");
   assert.deepEqual(calls[0].body?.parameters, { symbol: "MU", function: "EARNINGS" });
@@ -501,9 +504,12 @@ test("transcript role separates analyst questions from adjacent management answe
 
   assert.equal(transcript?.available, true);
   assert.equal(transcript?.managementTone, "more_positive");
-  assert.deepEqual(transcript?.repeatedQuestions, ["AI demand", "Margins", "Supply chain"]);
+  assert.deepEqual(transcript?.repeatedQuestions, [
+    "Can you discuss AI demand and gross margin?",
+    "What about supply constraints?",
+  ]);
   assert.deepEqual(transcript?.managementAnswers, [{
-    topic: "AI demand",
+    topic: "Can you discuss AI demand and gross margin?",
     answer: "AI demand remains strong, and gross margin improved as data center ramps.",
     sourceIds: ["MU-qveris-get_earnings_transcript"],
   }]);

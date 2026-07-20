@@ -72,7 +72,7 @@ export async function analyzeEarnings(
     event?.status === "reported"
       ? safe("prices", "HISTORICAL_PRICES_UNAVAILABLE", () => provider.getHistoricalPrices(ticker, { from: addDaysIso(event.reportDate, -7), to: addDaysIso(event.reportDate, 10) }), [])
       : Promise.resolve([]),
-    safe("financials", "FINANCIALS_UNAVAILABLE", () => provider.getFinancialStatements?.(ticker, 4) ?? Promise.resolve([]), []),
+    safe("financials", "FINANCIALS_UNAVAILABLE", () => provider.getFinancialStatements?.(ticker, 8) ?? Promise.resolve([]), []),
     safe("segments", "SEGMENTS_UNAVAILABLE", () => provider.getRevenueSegments?.(ticker, 4) ?? Promise.resolve([]), []),
     request.includeNews === false ? Promise.resolve([]) : safe("news", "NEWS_UNAVAILABLE", () => provider.getFinancialNews(ticker, { limit: request.maxNewsItems ?? 5 }), []),
     request.includeFilings === false ? Promise.resolve([]) : safe("filings", "FILINGS_UNAVAILABLE", () => provider.getSecFilings(ticker, filingParams), []),
