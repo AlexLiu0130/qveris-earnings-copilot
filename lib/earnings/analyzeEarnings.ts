@@ -14,7 +14,7 @@ import { sourceIdsFrom, uniqueSources } from "@/lib/earnings/sourceRefs";
 import { buildEventStatus, buildWhatChanged, oneLineVerdict } from "@/lib/earnings/eventWorkspace";
 import { detectDataConflicts, resolveEventEstimates, selectFiscalPeriod } from "@/lib/earnings/dataQuality";
 import { buildMarketReaction } from "@/lib/earnings/marketReaction";
-import { localizeGuidanceText, localizeSources, localizeTranscript } from "@/lib/earnings/localize";
+import { localizeGuidanceText, localizeSources, localizeTranscript, translateTranscript } from "@/lib/earnings/localize";
 import { dataIssue, isQVerisCapabilityError } from "@/lib/earnings/providerIssues";
 import type { AnalyzeEarningsRequest, AnalyzeEarningsResponse, ClaimSourceIds, DataIssue, EarningsAnalysis, EarningsClaimSourceIds, FilingParams, ResolvedAnalysisMode } from "@/lib/earnings/types";
 
@@ -199,27 +199,31 @@ export async function analyzeEarnings(
   const generatedAt = new Date().toISOString();
   const analysisId = buildAnalysisId({ ticker, mode, generatedAt });
   const missing = [...new Set([...missingFromStatus(capabilityStatus), ...missingSourceIds.map((id) => `source:${id}`)])];
-  const ai = request.includeAiSummary === false ? null : await generateAiSummary({
-    ticker,
-    language,
-    mode,
-    company,
-    event,
-    estimates,
-    results,
-    quote,
-    marketReaction,
-    financials,
-    segmentRevenue,
-    historicalSummary,
-    news,
-    filings,
-    transcript,
-    beatMiss,
-    missing,
-    confidence,
-    sources,
-  });
+  const translateCall = request.includeAiSummary !== false && language === "zh" && transcript?.available;
+  const [ai, localizedTranscript] = await Promise.all([
+    request.includeAiSummary === false || translateCall ? null : generateAiSummary({
+      ticker,
+      language,
+      mode,
+      company,
+      event,
+      estimates,
+      results,
+      quote,
+      marketReaction,
+      financials,
+      segmentRevenue,
+      historicalSummary,
+      news,
+      filings,
+      transcript,
+      beatMiss,
+      missing,
+      confidence,
+      sources,
+    }),
+    translateCall ? translateTranscript(transcript, language) : transcript,
+  ]);
   const generated = mergeGenerated(deterministicWithSources, ai, knownSourceIds);
   const verdict = oneLineVerdict(generated.summaryBullets, event, language);
   const claimSourceIds = {
@@ -237,7 +241,7 @@ export async function analyzeEarnings(
     segmentRevenue,
     news,
     filings,
-    transcript,
+    transcript: localizedTranscript,
     summaryBullets: generated.summaryBullets,
     historicalPattern,
     keyDrivers: generated.keyDrivers,
@@ -266,7 +270,7 @@ export async function analyzeEarnings(
     historicalSummary,
     news,
     filings,
-    transcript,
+    transcript: localizedTranscript,
     analystRevisions,
     beatMiss,
     oneLineVerdict: verdict,

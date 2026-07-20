@@ -114,6 +114,48 @@ test("AI narrative may only reorder or filter deterministic claims with matching
   }
 });
 
+test("Chinese analysis keeps transcript originals and attaches index-matched translations", async () => {
+  const oldApiKey = process.env.OPENAI_API_KEY;
+  const oldBaseUrl = process.env.OPENAI_BASE_URL;
+  const oldFetch = globalThis.fetch;
+  try {
+    process.env.OPENAI_API_KEY = "test-key";
+    process.env.OPENAI_BASE_URL = "https://ai.test";
+    globalThis.fetch = async () => new Response(JSON.stringify({
+      choices: [{
+        message: {
+          content: JSON.stringify({
+            questions: [
+              { id: 0, text: "AI 资本开支能持续多久？" },
+              { id: 1, text: "利润率趋势如何？" },
+              { id: 2, text: "需求能见度如何？" },
+            ],
+            answers: [
+              { id: 0, topic: "AI 资本开支持续性", answer: "管理层表示资本开支与客户需求能见度和供应可用性相关。" },
+              { id: 1, topic: "利润率趋势", answer: "管理层表示产品组合和运营纪律仍是利润率的主要驱动因素。" },
+            ],
+          }),
+        },
+      }],
+    }), { status: 200, headers: { "Content-Type": "application/json" } });
+
+    const analysis = await analyzeEarnings(
+      { ticker: "NVDA", mode: "auto", language: "zh", includeTranscript: true },
+      new DatedMockProvider(),
+    );
+
+    assert.equal(analysis.transcript?.repeatedQuestions?.[0], "AI capex durability");
+    assert.equal(analysis.transcript?.questionTranslations?.[0], "AI 资本开支能持续多久？");
+    assert.equal(analysis.transcript?.managementAnswers?.[0].answerTranslation, "管理层表示资本开支与客户需求能见度和供应可用性相关。");
+  } finally {
+    if (oldApiKey === undefined) delete process.env.OPENAI_API_KEY;
+    else process.env.OPENAI_API_KEY = oldApiKey;
+    if (oldBaseUrl === undefined) delete process.env.OPENAI_BASE_URL;
+    else process.env.OPENAI_BASE_URL = oldBaseUrl;
+    globalThis.fetch = oldFetch;
+  }
+});
+
 test("deterministic claims carry only source ids present in analysis sources or unavailable", async () => {
   const analysis = await analyzeEarnings(
     { ticker: "NVDA", mode: "auto", includeTranscript: true, includeAiSummary: false },

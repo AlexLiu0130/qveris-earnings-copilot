@@ -8,5 +8,8 @@ export function Cite({ ids, sources }: { ids: string[] | undefined; sources: Sou
     .map((id) => sources.findIndex((s) => s.id === id) + 1)
     .filter((i) => i > 0);
   if (!indices.length) return null;
-  return <sup className="cite">[{[...new Set(indices)].sort((a, b) => a - b).join(",")}]</sup>;
+  const unique = [...new Set(indices)].sort((a, b) => a - b);
+  const full = `[${unique.join(",")}]`;
+  const compact = unique.length > 1 ? `[${unique[0]}+]` : full;
+  return <sup className="cite" title={full} aria-label={`Sources ${full}`}>{compact}</sup>;
 }

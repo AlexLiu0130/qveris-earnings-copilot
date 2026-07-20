@@ -1,5 +1,6 @@
 import type { Lang } from "@/lib/i18n/dict";
 import type { SourceRef, TranscriptInsight } from "@/lib/earnings/types";
+import { localEnv } from "@/lib/runtime/env";
 
 const SOURCE_TITLES_ZH: Record<string, string> = {
   get_company_profile: "QVeris 公司档案",
@@ -38,6 +39,72 @@ export function localizeGuidanceText(text: string | undefined, lang: Lang, fisca
 
 export function localizeTranscript(transcript: TranscriptInsight | null | undefined, _lang: Lang) {
   return transcript;
+}
+
+export async function translateTranscript(transcript: TranscriptInsight | null | undefined, lang: Lang) {
+  if (lang !== "zh" || !transcript?.available || !transcript.repeatedQuestions?.length) return transcript;
+  const env = localEnv();
+  if (!env.OPENAI_API_KEY) return transcript;
+  try {
+    const res = await fetch(`${(env.OPENAI_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "")}/chat/completions`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+      signal: AbortSignal.timeout(20_000),
+      body: JSON.stringify({
+        model: env.OPENAI_MODEL || "deepseek-v4-flash",
+        temperature: 0,
+        response_format: { type: "json_object" },
+        messages: [
+          { role: "system", content: "Translate the supplied earnings-call questions and answers faithfully into Simplified Chinese. Do not summarize, omit, explain, or add facts. Preserve company names, tickers, abbreviations, numbers, and every id. Return JSON with questions as objects {id,text} and answers as objects {id,topic,answer}." },
+          { role: "user", content: JSON.stringify({ questions: transcript.repeatedQuestions.map((text, id) => ({ id, text })), answers: transcript.managementAnswers?.map(({ topic, answer }, id) => ({ id, topic, answer })) ?? [] }) },
+        ],
+      }),
+    });
+    if (!res.ok) return transcript;
+    const payload = await res.json();
+    const value = JSON.parse(payload?.choices?.[0]?.message?.content ?? "null") as { questions?: unknown; answers?: unknown } | null;
+    const questions = translatedQuestions(value?.questions, transcript.repeatedQuestions.length);
+    const answers = translatedAnswers(value?.answers, transcript.managementAnswers?.length ?? 0);
+    if (!questions.some(Boolean) && !answers.some((item) => item.topic && item.answer)) return transcript;
+    return {
+      ...transcript,
+      questionTranslations: questions,
+      managementAnswers: transcript.managementAnswers?.map((item, index) => ({
+        ...item,
+        topicTranslation: answers[index]?.topic || undefined,
+        answerTranslation: answers[index]?.answer || undefined,
+      })),
+    };
+  } catch {
+    return transcript;
+  }
+}
+
+function translatedQuestions(value: unknown, expected: number) {
+  const translations = Array<string>(expected).fill("");
+  if (!Array.isArray(value)) return translations;
+  for (const item of value) {
+    const record = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    const id = Number(record.id);
+    if (Number.isInteger(id) && id >= 0 && id < expected) translations[id] = chinese(record.text);
+  }
+  return translations;
+}
+
+function translatedAnswers(value: unknown, expected: number) {
+  const translations = Array.from({ length: expected }, () => ({ topic: "", answer: "" }));
+  if (!Array.isArray(value)) return translations;
+  for (const item of value) {
+    const record = item && typeof item === "object" ? item as Record<string, unknown> : {};
+    const id = Number(record.id);
+    if (Number.isInteger(id) && id >= 0 && id < expected) translations[id] = { topic: chinese(record.topic), answer: chinese(record.answer) };
+  }
+  return translations;
+}
+
+function chinese(value: unknown) {
+  const text = typeof value === "string" ? value.trim() : "";
+  return /[\u3400-\u9fff]/.test(text) ? text : "";
 }
 
 export function localizeSources(sources: SourceRef[], lang: Lang) {

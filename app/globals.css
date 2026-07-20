@@ -724,12 +724,14 @@ html[lang="zh-CN"] .home-hero-copy h1 em {
 
 /* footnote-style source citation */
 .cite {
+  display: inline-block;
   font-family: var(--font-mono);
-  font-size: 0.625rem;
+  font-size: 0.55rem;
   color: var(--color-accent-dim);
   vertical-align: super;
-  margin-left: 0.15rem;
-  letter-spacing: 0.02em;
+  line-height: 1;
+  margin-left: 0.1rem;
+  white-space: nowrap;
 }
 
 /* staggered page-load reveal */

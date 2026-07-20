@@ -47,7 +47,10 @@ export async function CallIntelligencePanel({ analysis }: { analysis: EarningsAn
                 {transcript.repeatedQuestions.map((question, i) => (
                   <li key={i} className="flex gap-2.5 text-sm text-ink-soft">
                     <span className="num text-accent-dim">Q</span>
-                    {question}
+                    <div>
+                      <p>{lang === "zh" ? transcript.questionTranslations?.[i] ?? question : question}</p>
+                      {lang === "zh" && transcript.questionTranslations?.[i] && <OriginalText text={question} />}
+                    </div>
                   </li>
                 ))}
               </ul>
@@ -61,9 +64,10 @@ export async function CallIntelligencePanel({ analysis }: { analysis: EarningsAn
                 {transcript.managementAnswers.map((item, i) => (
                   <li key={`${item.topic}-${i}`} className="text-sm leading-relaxed text-ink-soft">
                     <span className="num mr-2 text-accent-dim">A</span>
-                    <span className="text-ink">{item.topic}：</span>
-                    {item.answer}
+                    <span className="text-ink">{lang === "zh" ? item.topicTranslation ?? item.topic : item.topic}：</span>
+                    {lang === "zh" ? item.answerTranslation ?? item.answer : item.answer}
                     <Cite ids={item.sourceIds} sources={analysis.sources} />
+                    {lang === "zh" && item.answerTranslation && <OriginalText text={`${item.topic}: ${item.answer}`} />}
                   </li>
                 ))}
               </ul>
@@ -92,6 +96,15 @@ export async function CallIntelligencePanel({ analysis }: { analysis: EarningsAn
         </div>
       )}
     </section>
+  );
+}
+
+function OriginalText({ text }: { text: string }) {
+  return (
+    <details className="mt-1 text-xs text-ink-faint">
+      <summary className="cursor-pointer select-none">英文原文</summary>
+      <p className="mt-1 leading-relaxed">{text}</p>
+    </details>
   );
 }
 

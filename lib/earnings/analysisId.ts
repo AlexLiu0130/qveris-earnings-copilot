@@ -1,7 +1,7 @@
 import type { AnalyzeEarningsRequest, EarningsAnalysis } from "@/lib/earnings/types";
 
 const ANALYSIS_ID_SEQUENCE_KEY = Symbol.for("qveris.earnings.analysisId.sequence.v1");
-const ANALYSIS_PIPELINE_VERSION = 2;
+const ANALYSIS_PIPELINE_VERSION = 3;
 
 export function buildAnalysisId(input: Pick<EarningsAnalysis, "ticker" | "mode" | "generatedAt">) {
   const base = `${normalizeTicker(input.ticker)}-${input.mode}-${compactTimestamp(input.generatedAt)}`;

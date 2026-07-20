@@ -31,5 +31,5 @@ test("analysis ids do not reuse a same-second base after many other timestamp ba
 });
 
 test("request cache keys include the analysis pipeline version", () => {
-  assert.equal(JSON.parse(requestKey({ ticker: "JPM" })).analysisPipelineVersion, 2);
+  assert.equal(JSON.parse(requestKey({ ticker: "JPM" })).analysisPipelineVersion, 3);
 });

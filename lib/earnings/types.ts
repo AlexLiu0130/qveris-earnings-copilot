@@ -196,7 +196,8 @@ export interface TranscriptInsight {
   guidanceTone?: "more_positive" | "neutral" | "more_negative" | "unavailable";
   riskLanguage?: "increased" | "unchanged" | "decreased" | "unavailable";
   repeatedQuestions?: string[];
-  managementAnswers?: Array<{ topic: string; answer: string; sourceIds: string[] }>;
+  questionTranslations?: string[];
+  managementAnswers?: Array<{ topic: string; answer: string; topicTranslation?: string; answerTranslation?: string; sourceIds: string[] }>;
   keyQuotes?: Array<{ text: string; speaker?: string; sourceIds: string[] }>;
   sourceIds: string[];
 }

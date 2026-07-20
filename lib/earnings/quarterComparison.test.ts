@@ -175,7 +175,7 @@ test("keeps field sources scoped when only EPS has a source", () => {
     language: "en",
   }));
   assert.match(html, /actual: unavailable/);
-  assert.match(html, /\$2\.00<sup class="cite">\[1\]<\/sup>/);
+  assert.match(html, /\$2\.00<sup class="cite"[^>]*>\[1\]<\/sup>/);
 });
 
 test("calculates surprise percentages", () => {
