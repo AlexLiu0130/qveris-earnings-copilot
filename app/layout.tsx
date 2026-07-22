@@ -39,7 +39,7 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 </Link>
               ))}
               <a
-                href="https://github.com/AlexLiu0130"
+                href="https://github.com/AlexLiu0130/qveris-earnings-copilot"
                 target="_blank"
                 rel="noreferrer"
                 className="github-star"
