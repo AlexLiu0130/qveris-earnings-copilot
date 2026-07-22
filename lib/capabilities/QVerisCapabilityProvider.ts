@@ -182,11 +182,12 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
     const latest = selectHistoricalPeriod(history, event);
     const latestFinancials = selectFiscalPeriod(financials, event);
     const latestSegments = selectFiscalPeriod(segments, event);
-    const guidanceText = extractGuidanceText(transcript.entries);
+    const transcriptGuidance = extractGuidanceText(transcript.entries);
+    const guidanceText = transcriptGuidance;
     const calendarSourceIds = event?.sourceIds ?? [];
     const revenueSourceIds = event?.revenueActual != null ? calendarSourceIds : latestFinancials?.fieldSourceIds?.revenue ?? latestFinancials?.sourceIds;
     const epsSourceIds = event?.epsActual != null ? calendarSourceIds : latest?.sourceIds;
-    const guidanceSourceIds = guidanceText
+    const guidanceSourceIds = transcriptGuidance
       ? [this.recordSource(ticker, "get_earnings_guidance", "QVeris prepared earnings guidance", TRANSCRIPT_TOOL_ID, transcript.executionId)]
       : undefined;
     if (event?.revenueActual == null && event?.epsActual == null && !latest && !latestFinancials) return null;
@@ -926,18 +927,30 @@ function fiscalQuarter(value?: string) {
 }
 
 export function extractGuidanceText(entries: Record<string, unknown>[]) {
+  const guidance: string[] = [];
   for (const entry of entries) {
     const content = stringValue(entry.content);
-    if (!content) continue;
-    const heading = /\b(?:now\s+)?turning to (?:our )?guidance\b/i.exec(content)
-      ?? /\bbusiness outlook\b/i.exec(content);
-    if (!heading) continue;
-    const section = content.slice(heading.index).replace(/\s+/g, " ").trim();
-    const epsSentence = /[^.!?]*(?:\bEPS\b|earnings per share)[^.!?]*[.!?]/i.exec(section);
-    if (epsSentence) return section.slice(0, epsSentence.index + epsSentence[0].length).trim();
-    return section.split(/(?<=[.!?])\s+/).slice(0, 3).join(" ").slice(0, 1200);
+    if (!content || transcriptRole(entry) === "analyst") continue;
+    for (const sentence of content.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/)) {
+      if (!isGuidanceSentence(sentence)) continue;
+      guidance.push(sentence);
+      // ponytail: two cited sentences keep the result concise; add structured guidance fields if more detail is needed.
+      if (guidance.length === 2) return guidance.join(" ").slice(0, 1200);
+    }
   }
-  return undefined;
+  return guidance.length ? guidance.join(" ").slice(0, 1200) : undefined;
+}
+
+function isGuidanceSentence(value: string) {
+  return !value.includes("?")
+    && !/\bbefore\s+turning\s+to\s+(?:the\s+)?outlook\b/i.test(value)
+    && hasFutureAnchor(value)
+    && /\b(guidance|outlook|forecast(?:ing)?|project(?:ion)?|expect(?:ed|s|ing)?|guiding|range)\b/i.test(value)
+    && /\b(revenue|sales|EPS|earnings per share|NII|net interest income|expense(?:s)?|margin)\b/i.test(value);
+}
+
+function hasFutureAnchor(value: string) {
+  return /\b(?:we\s+(?:now\s+)?(?:expect|forecast|project)|we\s+are\s+guiding|we\s+will|(?:is|are)\s+(?:expected|projected|forecast)|(?:guidance|outlook|forecast)\s+(?:calls\s+for|assumes|is)|we\s+(?:revised|raised|lowered)\b[^.!?]{0,80}\b(?:guidance|outlook))\b/i.test(value);
 }
 
 function toneFromText(text: string, keyword: string): TranscriptInsight["guidanceTone"] {

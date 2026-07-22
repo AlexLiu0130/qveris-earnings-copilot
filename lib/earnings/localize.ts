@@ -21,19 +21,37 @@ const SOURCE_TITLES_ZH: Record<string, string> = {
 
 export function localizeGuidanceText(text: string | undefined, lang: Lang, fiscalYear?: number) {
   if (!text || lang === "en") return text;
-  const quarter = text.match(/fiscal\s+(Q[1-4])/i)?.[1]?.toUpperCase();
+  const quarter = text.match(/(?:fiscal\s+)?(Q[1-4])\b/i)?.[1]?.toUpperCase();
+  const fullYear = text.match(/\bfull[- ]year\s+(20\d{2})\b/i)?.[1];
   const revenue = metricMoney(text, /\b(?:revenue|sales)\b/i);
+  const revenueGrowth = revenueGrowthMetric(text);
   const grossMargin = metricPercent(text, /\bgross margin\b/i);
   const operatingExpenses = metricMoney(text, /\boperating expenses?\b/i);
+  const contentExpenseGrowth = metricPercent(text, /\bcontent expense\b/i);
   const eps = metricMoney(text, /\bEPS\b|earnings per share/i);
+  const niiExMarkets = firstMetricMoney(text, /\bNII ex[- ]Markets\b/i);
+  const totalNii = firstMetricMoney(text, /\btotal NII\b/i);
+  const marketsNii = firstMetricMoney(text, /\bmarkets NII\b/i);
+  const nii = [
+    niiExMarkets && `非市场 NII 约 ${niiExMarkets}`,
+    totalNii && `总 NII 约 ${totalNii}`,
+    marketsNii && `市场 NII 约 ${marketsNii}`,
+  ].filter(Boolean);
+  const adjustedExpense = firstMetricMoney(text, /\badjusted expense outlook\b/i);
   const metrics = [
     revenue && `营收 ${revenue}`,
+    revenueGrowth,
     grossMargin && `毛利率约 ${grossMargin}`,
     operatingExpenses && `运营费用约 ${operatingExpenses}`,
+    contentExpenseGrowth && `内容费用增长约 ${contentExpenseGrowth}`,
     eps && `EPS ${eps}`,
+    ...nii,
+    adjustedExpense && `调整后费用展望约 ${adjustedExpense}`,
   ].filter(Boolean);
-  if (!metrics.length) return "公司已披露业绩指引，具体内容请查看引用来源。";
-  const period = `${fiscalYear ? `${fiscalYear} 财年` : ""}${quarter ?? "下一季度"}`;
+  if (!metrics.length) return `业绩指引原文：${text}`;
+  const period = fullYear
+    ? `${fullYear} 全年`
+    : `${fiscalYear ? `${fiscalYear} 财年` : ""}${quarter ?? "下一季度"}`;
   return `${period}指引：${metrics.join("；")}。`;
 }
 
@@ -128,10 +146,26 @@ function metricMoney(text: string, label: RegExp) {
   return `${midpoint}${range}`;
 }
 
+function firstMetricMoney(text: string, label: RegExp) {
+  const start = text.search(label);
+  if (start < 0) return undefined;
+  const value = text.slice(start, start + 180).match(/\$([\d,.]+)\s*(billion|million|[BM])?/i);
+  return value ? moneyToken(value) : undefined;
+}
+
 function metricPercent(text: string, label: RegExp) {
   const start = text.search(label);
   if (start < 0) return undefined;
   return text.slice(start, start + 100).match(/([\d.]+)%/)?.[0];
+}
+
+function revenueGrowthMetric(text: string) {
+  const revenueGrowth = text.match(/(\d+(?:\.\d+)?)%\s+revenue growth\b/i)?.[1]
+    ?? text.match(/\brevenue growth\b[^.!?]{0,50}?(\d+(?:\.\d+)?)%/i)?.[1];
+  if (!revenueGrowth) return undefined;
+  const reported = /\brevenue growth\b[^.!?]{0,80}\breported\b/i.test(text);
+  const fxNeutral = text.match(/(\d+(?:\.\d+)?)%\s+FX[- ]neutral\b/i)?.[1];
+  return `营收增长 ${revenueGrowth}%${reported ? "（报告口径）" : ""}${fxNeutral ? ` / ${fxNeutral}%（固定汇率口径）` : ""}`;
 }
 
 function moneyToken(match: RegExpMatchArray) {

@@ -3,6 +3,7 @@ import type { SourceRef } from "@/lib/earnings/types";
 import { fmtDate, fmtEps, fmtMoney, fmtPct } from "@/lib/formatting/format";
 import { u } from "@/lib/i18n/dict";
 import { Cite } from "./Cite";
+import { QuarterlyTrendChart } from "./QuarterlyTrendChart";
 
 const labels = {
   en: {
@@ -53,16 +54,17 @@ export function MultiQuarterPanel({ rows, sources, language }: { rows: QuarterCo
       {rows.length === 0 ? (
         <p className="mt-3 text-sm text-ink-faint">{t.empty}</p>
       ) : (
-        <div className="mt-4 max-w-full overflow-x-auto">
-          <table className="num w-full min-w-[710px] table-fixed text-sm">
+        <>
+          <div className="mt-4 max-w-full overflow-x-auto">
+            <table className="num w-full min-w-[900px] table-fixed text-sm">
             <colgroup>
-              <col className="w-[70px]" />
-              <col className="w-[105px]" />
-              <col className="w-[135px]" />
-              <col className="w-[125px]" />
-              <col className="w-[85px]" />
-              <col className="w-[95px]" />
-              <col className="w-[95px]" />
+              <col className="w-[76px]" />
+              <col className="w-[118px]" />
+              <col className="w-[184px]" />
+              <col className="w-[156px]" />
+              <col className="w-[104px]" />
+              <col className="w-[120px]" />
+              <col className="w-[142px]" />
             </colgroup>
             <thead>
               <tr className="label text-left">
@@ -88,8 +90,10 @@ export function MultiQuarterPanel({ rows, sources, language }: { rows: QuarterCo
                 </tr>
               ))}
             </tbody>
-          </table>
-        </div>
+            </table>
+          </div>
+          <QuarterlyTrendChart rows={rows} sources={sources} language={language} />
+        </>
       )}
     </section>
   );
@@ -97,13 +101,11 @@ export function MultiQuarterPanel({ rows, sources, language }: { rows: QuarterCo
 
 function metric(actualLabel: string, actual: React.ReactNode, estimateLabel: string, estimate: React.ReactNode, surpriseLabel: string, surprise: React.ReactNode) {
   return (
-    <>
-      {actualLabel}: {actual}
-      <br />
-      {estimateLabel}: {estimate}
-      <br />
-      {surpriseLabel}: {surprise}
-    </>
+    <div className="grid gap-0.5 text-xs leading-5">
+      <span className="whitespace-nowrap">{actualLabel}: {actual}</span>
+      <span className="whitespace-nowrap">{estimateLabel}: {estimate}</span>
+      <span className="whitespace-nowrap">{surpriseLabel}: {surprise}</span>
+    </div>
   );
 }
 
@@ -112,12 +114,13 @@ function ratio(value: number | undefined, sourceIds: string[] | undefined, un: s
 }
 
 function sourced(value: string, sourceIds: string[] | undefined, un: string, sources: SourceRef[]) {
-  if (!sourceIds?.length) return un;
+  const knownIds = knownSourceIds(sourceIds, sources);
+  if (!knownIds.length) return un;
   return (
-    <>
+    <span className="inline-flex items-baseline whitespace-nowrap gap-px">
       {u(value, un)}
-      <Cite ids={sourceIds} sources={sources} />
-    </>
+      <Cite ids={knownIds} sources={sources} />
+    </span>
   );
 }
 
@@ -129,4 +132,9 @@ function surpriseIds(row: QuarterComparisonRow, actualField: QuarterComparisonFi
   const actualIds = ids(row, actualField);
   const estimateIds = ids(row, estimateField);
   return actualIds?.length && estimateIds?.length ? [...actualIds, ...estimateIds] : undefined;
+}
+
+function knownSourceIds(sourceIds: string[] | undefined, sources: SourceRef[]) {
+  const known = new Set(sources.map((source) => source.id));
+  return sourceIds?.filter((id) => known.has(id)) ?? [];
 }

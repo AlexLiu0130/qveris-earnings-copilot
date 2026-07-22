@@ -14,6 +14,7 @@ export type QuarterComparisonField =
 
 export interface QuarterComparisonRow {
   eventKey: string;
+  fiscalYear?: number;
   fiscalPeriod?: string;
   reportDate?: string;
   revenueActual?: number;
@@ -34,7 +35,6 @@ export interface QuarterComparisonRow {
 }
 
 type InternalRow = QuarterComparisonRow & {
-  fiscalYear?: number;
   fiscalEndDate?: string;
   fiscalKey?: string;
   sortDate?: string;
@@ -72,7 +72,6 @@ export function buildQuarterComparison(analyses: EarningsAnalysis[], limit = 8):
     .sort((a, b) => (b.sortDate ?? "").localeCompare(a.sortDate ?? ""))
     .slice(0, capped)
     .map(({
-      fiscalYear: _fiscalYear,
       fiscalEndDate: _fiscalEndDate,
       fiscalKey: _fiscalKey,
       sortDate: _sortDate,

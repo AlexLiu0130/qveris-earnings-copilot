@@ -11,6 +11,24 @@ test("numeric guidance is rendered in Chinese without changing values", () => {
   assert.equal(localized, "2026 财年Q4指引：营收 $50B（±$1B）；毛利率约 86%；运营费用约 $1.65B；EPS $31（±$1）。");
 });
 
+test("guidance localization keeps revenue-growth, NII, and expense-outlook values", () => {
+  assert.equal(
+    localizeGuidanceText("We are guiding to 12% revenue growth in Q3 reported, 11% FX neutral. So forecasting content expense up about 10% this year.", "zh", 2026),
+    "2026 财年Q3指引：营收增长 12%（报告口径） / 11%（固定汇率口径）；内容费用增长约 10%。",
+  );
+  assert.equal(
+    localizeGuidanceText("In terms of the full year 2026 outlook, we now expect NII ex-Markets to be about $96.5 billion, and total NII to be approximately $105.5 billion as a function of markets NII increasing to about $9 billion. The new adjusted expense outlook is about $107.5 billion.", "zh", 2026),
+    "2026 全年指引：非市场 NII 约 $96.5B；总 NII 约 $105.5B；市场 NII 约 $9B；调整后费用展望约 $107.5B。",
+  );
+});
+
+test("unstructured guidance keeps its original sentence instead of a generic placeholder", () => {
+  assert.equal(
+    localizeGuidanceText("Management expects market conditions to remain supportive.", "zh", 2026),
+    "业绩指引原文：Management expects market conditions to remain supportive.",
+  );
+});
+
 test("transcript localization preserves sourced questions and answers verbatim", () => {
   const transcript = {
     available: true,

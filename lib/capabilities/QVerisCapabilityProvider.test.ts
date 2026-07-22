@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { __clearQVerisFetchCacheForTests } from "@/lib/capabilities/qverisFetchCache";
-import { QVerisCapabilityError, QVerisCapabilityProvider } from "@/lib/capabilities/QVerisCapabilityProvider";
+import { extractGuidanceText, QVerisCapabilityError, QVerisCapabilityProvider } from "@/lib/capabilities/QVerisCapabilityProvider";
 import type { EarningsEvent } from "@/lib/earnings/types";
 import { __setD1ForTests } from "@/lib/storage/d1";
 
@@ -397,6 +397,54 @@ test("optional segment failure does not discard core earnings results", async (t
 
   assert.equal(results?.revenueActual, 9_326_500_000);
   assert.equal(results?.epsActual, 7.58);
+});
+
+test("guidance extraction keeps company ranges and financial outlooks, not analyst questions", () => {
+  assert.equal(extractGuidanceText([
+    { speaker: "Analyst", content: "What is the main driver of revenue growth as the Q3 guidance suggests?" },
+    { speaker: "CFO", content: "We are guiding to revenue growth of 12% in Q3, with EPS expected in the range of $1.10 to $1.20." },
+  ]), "We are guiding to revenue growth of 12% in Q3, with EPS expected in the range of $1.10 to $1.20.");
+  assert.equal(extractGuidanceText([
+    { speaker: "CFO", content: "For Q3, revenue is expected to grow 10%." },
+  ]), "For Q3, revenue is expected to grow 10%.");
+  assert.equal(extractGuidanceText([
+    { speaker: "CFO", content: "Before turning to the outlook, corporate reported net income on revenue of $6 billion." },
+    { speaker: "CFO", content: "For the full year outlook, we now expect NII to be about $96.5 billion." },
+    { speaker: "CFO", content: "We revised up this year's expense guidance by $2.5 billion, while our NII forecast is higher." },
+  ]), "For the full year outlook, we now expect NII to be about $96.5 billion. We revised up this year's expense guidance by $2.5 billion, while our NII forecast is higher.");
+  assert.equal(extractGuidanceText([
+    { speaker: "CFO", content: "Reported revenue was consistent with prior guidance." },
+  ]), undefined);
+  assert.equal(extractGuidanceText([
+    { speaker: "CFO", content: "Results were within guidance range." },
+  ]), undefined);
+  assert.equal(extractGuidanceText([
+    { speaker: "CFO", content: "Revenue grew 10% this quarter, as expected under our prior guidance." },
+  ]), undefined);
+  assert.equal(extractGuidanceText([
+    { speaker: "CFO", content: "Results were within the range in previous guidance this quarter." },
+  ]), undefined);
+  assert.equal(extractGuidanceText([
+    { speaker: "CFO", content: "Revenue grew 10% this quarter, as expected." },
+  ]), undefined);
+  assert.equal(extractGuidanceText([
+    { speaker: "CFO", content: "This quarter revenue was $5 billion versus $4.8 billion expected." },
+  ]), undefined);
+  assert.equal(extractGuidanceText([
+    { speaker: "CFO", content: "Revenue was in line with the forecast this quarter." },
+  ]), undefined);
+  assert.equal(extractGuidanceText([
+    { speaker: "CFO", content: "This year revenue was in line with guidance." },
+  ]), undefined);
+  assert.equal(extractGuidanceText([
+    { speaker: "CFO", content: "Revenue for Q4 was in line with guidance." },
+  ]), undefined);
+  assert.equal(extractGuidanceText([
+    { speaker: "CFO", content: "Full-year revenue was in line with forecast." },
+  ]), undefined);
+  assert.equal(extractGuidanceText([
+    { speaker: "CFO", content: "FY2025 revenue was in line with guidance." },
+  ]), undefined);
 });
 
 test("calendar rejects malformed success payload instead of returning fake empty data", async (t) => {

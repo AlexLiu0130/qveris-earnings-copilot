@@ -79,6 +79,7 @@ test("merges fiscal end dates that differ by a few reporting days", () => {
 
   assert.equal(rows.length, 1);
   assert.equal(rows[0].fiscalPeriod, "Q3");
+  assert.equal(rows[0].fiscalYear, 2025);
   assert.equal(rows[0].epsActual, 5.49);
   assert.equal(rows[0].revenueActual, 7_516_000_000);
 });
@@ -176,6 +177,33 @@ test("keeps field sources scoped when only EPS has a source", () => {
   }));
   assert.match(html, /actual: unavailable/);
   assert.match(html, /\$2\.00<sup class="cite"[^>]*>\[1\]<\/sup>/);
+});
+
+test("trend renders only known sources and keeps fiscal years", () => {
+  const [latest] = buildQuarterComparison([analysis("q3", "2026-07-20T00:00:00.000Z", {
+    event: event("NVDA-q3", "Q3", 2024, "2026-07-20"),
+    results: { ticker: "NVDA", revenueActual: 30, sourceIds: ["q3"], fieldSourceIds: { revenueActual: ["q3"] } },
+  })]);
+  assert.equal(latest.fiscalYear, 2024);
+
+  const html = renderToStaticMarkup(React.createElement(MultiQuarterPanel, {
+    rows: [
+      latest,
+      { ...latest, eventKey: "NVDA-q2", fiscalPeriod: "Q2", revenueActual: 20, fieldSourceIds: { revenueActual: ["unknown"] }, sourceIds: ["unknown"] },
+      { ...latest, eventKey: "NVDA-q1", fiscalPeriod: "Q1", revenueActual: 10, fieldSourceIds: { revenueActual: ["q1"] }, sourceIds: ["q1"] },
+    ],
+    sources: [
+      { id: "q3", title: "Q3 filing", retrievedAt: "2026-07-20T00:00:00Z" },
+      { id: "q1", title: "Q1 filing", retrievedAt: "2026-01-20T00:00:00Z" },
+    ],
+    language: "en",
+  }));
+
+  assert.match(html, /data-latest-period="Q3 2024"/);
+  assert.match(html, /data-point-count="2"/);
+  assert.match(html, /\$30<sup class="cite"[^>]*>\[1\]<\/sup>/);
+  assert.match(html, /data-trend-series="revenueActual"/);
+  assert.doesNotMatch(html, /\$20/);
 });
 
 test("calculates surprise percentages", () => {
