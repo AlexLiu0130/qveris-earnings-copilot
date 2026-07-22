@@ -1,4 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
+import { getSQLiteD1 } from "@/lib/storage/sqlite";
 
 export interface D1DatabaseBinding {
   prepare(sql: string): D1PreparedStatement;
@@ -34,6 +35,18 @@ export function getD1(): D1DatabaseBinding | null {
   if (testD1 !== undefined) {
     if (testD1 || !isProductionRuntime()) return testD1;
     throw new D1PersistenceError("D1 binding DB is required in production", "D1_BINDING_MISSING");
+  }
+
+  const driver = (process.env.PERSISTENCE_DRIVER ?? "d1").toLowerCase();
+  if (driver === "sqlite") {
+    try {
+      return getSQLiteD1();
+    } catch (error) {
+      throw new D1PersistenceError("SQLite database is unavailable", "D1_BINDING_MISSING", error);
+    }
+  }
+  if (driver !== "d1") {
+    throw new D1PersistenceError(`Unsupported persistence driver: ${driver}`, "D1_BINDING_MISSING");
   }
 
   try {

@@ -10,11 +10,13 @@
     "build": "next build --webpack",
     "build:codex": "NEXT_DIST_DIR=.next-codex next build --webpack",
     "build:sites": "node scripts/build-sites-secret-safe.mjs",
-    "build:worker": "opennextjs-cloudflare build --config deploy/wrangler.jsonc",
+    "build:worker": "opennextjs-cloudflare build --config deploy/wrangler.cloudflare.jsonc",
+    "migrate:worker:local": "wrangler d1 migrations apply DB --config deploy/wrangler.cloudflare.jsonc --local",
+    "preview:worker": "npm run build:worker && npm run migrate:worker:local && wrangler dev --config deploy/wrangler.cloudflare.jsonc",
     "scan:dist-secrets": "node scripts/scan-dist-secrets.mjs",
     "db:generate": "drizzle-kit generate",
     "start": "NEXT_DIST_DIR=.next-codex next start",
-    "test": "node --import tsx --test 'lib/**/*.test.ts' 'app/**/*.test.ts'",
+    "test": "tsx --test \"lib/**/*.test.ts\" \"app/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

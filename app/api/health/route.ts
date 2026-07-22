@@ -9,16 +9,19 @@ export async function GET() {
     const db = getD1();
     if (!db) throw new Error("D1 binding DB is unavailable");
     const result = await db.prepare("SELECT 1 AS ok").first<{ ok: number }>();
-    if (result?.ok !== 1) throw new Error("D1 health query failed");
+    if (result?.ok !== 1) throw new Error("Persistence health query failed");
 
-    return NextResponse.json({ status: "ok", database: "ok" });
+    return NextResponse.json(
+      { status: "ok", database: "ok" },
+      { headers: { "Cache-Control": "no-store" } },
+    );
   } catch (error) {
     console.error("Health check failed", {
       error: error instanceof Error ? error.message : "UnknownError",
     });
     return NextResponse.json(
       { status: "unhealthy", database: "unavailable" },
-      { status: 503 },
+      { status: 503, headers: { "Cache-Control": "no-store" } },
     );
   }
 }

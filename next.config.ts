@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  output: process.env.NEXT_OUTPUT === "standalone" ? "standalone" : undefined,
   // multiple agents/sessions build in this repo concurrently; give each its
   // own dist dir via NEXT_DIST_DIR to stop them clobbering a shared .next
   distDir: process.env.NEXT_DIST_DIR || ".next",

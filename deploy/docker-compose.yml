@@ -9,13 +9,14 @@ services:
     env_file:
       - .env
     environment:
-      CLOUDFLARE_INCLUDE_PROCESS_ENV: "true"
       PORT: "3000"
-      WRANGLER_PERSIST_TO: /data
+      PERSISTENCE_DRIVER: "${PERSISTENCE_DRIVER:-sqlite}"
+      SQLITE_DATABASE_PATH: "${SQLITE_DATABASE_PATH:-/data/earnings.db}"
+      SQLITE_MIGRATIONS_DIR: "${SQLITE_MIGRATIONS_DIR:-/app/drizzle}"
     ports:
       - "${APP_PORT:-3000}:3000"
     volumes:
-      - earnings_d1_data:/data
+      - earnings_sqlite_data:/data
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
@@ -29,4 +30,4 @@ services:
         max-file: "3"
 
 volumes:
-  earnings_d1_data:
+  earnings_sqlite_data:
