@@ -1,0 +1,33 @@
+name: qveris-earnings-copilot
+
+services:
+  app:
+    image: "${IMAGE_NAME:-ghcr.io/alexliu0130/qveris-earnings-copilot}:${IMAGE_TAG:-latest}"
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    env_file:
+      - .env
+    environment:
+      PORT: "3000"
+      PERSISTENCE_DRIVER: "${PERSISTENCE_DRIVER:-sqlite}"
+      SQLITE_DATABASE_PATH: "${SQLITE_DATABASE_PATH:-/data/earnings.db}"
+      SQLITE_MIGRATIONS_DIR: "${SQLITE_MIGRATIONS_DIR:-/app/drizzle}"
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    volumes:
+      - earnings_sqlite_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    logging:
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  earnings_sqlite_data:

@@ -9,7 +9,7 @@ Current status: implementation complete, pending production release verification
 - Pages: `/`, `/earnings`, `/earnings/calendar`, `/earnings/briefs`, `/earnings/[ticker]`, `/earnings/[ticker]/share`, `/developers/earnings`.
 - APIs: `POST|GET /api/earnings/analyze`, `GET /api/earnings/calendar`, `GET /api/earnings/analysis/[analysisId]`, `GET /api/earnings/history/[ticker]`, `POST /api/earnings/share-card`, `GET /api/earnings/share-card/image`.
 - Providers: QVeris default, hybrid optional, mock only when explicitly enabled for demo/testing.
-- Persistence: production analysis reads/writes are D1 fail-closed. Local/non-production can fall back to process memory. Raw QVeris fetch cache can fail open, but final analysis persistence in production still requires D1.
+- Persistence: Cloudflare production uses D1 binding `DB`; single-node Docker production uses a local SQLite file. Both are fail-closed in production. Local non-production can fall back to process memory.
 - Sites packaging: `npm run build:sites` includes `.openai/hosting.json` and `drizzle/` under `dist/.openai/`; it does not prove the production D1 binding exists or that migrations were applied.
 
 ## Setup
@@ -65,6 +65,58 @@ npm run scan:dist-secrets
 ```
 
 `build:sites` builds through OpenNext Cloudflare in a temporary shadow app, removes local `.env*` leakage from the artifact path, prepares `dist/`, and scans local secret values visible in `.env*`. The scan does not cover Git history, remote runtime secrets, Sites config, or logs.
+
+## Single-Node Docker Deployment
+
+Docker deployment uses the Node.js 24 Next.js standalone server and a local
+SQLite database. It does not require or connect to Cloudflare. The database and
+migrations use the same SQL schema as D1, and the SQLite file is persisted in a
+Docker volume.
+
+Create the runtime environment file outside source control:
+
+```bash
+cp deploy/.env.example deploy/.env
+```
+
+Set at least `QVERIS_API_KEY`, then build and start the service:
+
+```bash
+docker compose -f deploy/docker-compose.yml build
+docker compose -f deploy/docker-compose.yml up -d
+docker compose -f deploy/docker-compose.yml ps
+```
+
+The application is available at `http://localhost:3000` by default. Change
+`APP_PORT` in `deploy/.env` to publish a different host port.
+
+To run an image published by the GitHub workflow instead of building locally:
+
+```bash
+docker compose -f deploy/docker-compose.yml pull
+docker compose -f deploy/docker-compose.yml up -d --no-build
+```
+
+The `earnings_sqlite_data` volume contains `/data/earnings.db` and its SQLite WAL
+files. Back up that volume before destructive Docker maintenance. Removing the
+volume deletes stored analyses and migration state.
+
+This Compose topology is intentionally single-node. Do not run multiple app
+replicas against the same SQLite volume. Move persistence to a network database
+before horizontal scaling.
+
+## Local Cloudflare D1 Preview
+
+The original Cloudflare D1 implementation remains the default when
+`PERSISTENCE_DRIVER` is unset. Build and preview the OpenNext worker with a local
+D1 binding using:
+
+```bash
+npm run preview:worker
+```
+
+The preview command applies pending local D1 migrations before starting Wrangler.
+Wrangler stores this local preview state separately from the Docker SQLite file.
 
 ## Local D1 Migration Check
 
@@ -135,7 +187,7 @@ This is a local validation only. It does not apply or verify production migratio
 
 ## Persistence Rules
 
-- Production runtime requires D1 binding `DB` for stored analysis reads/writes. Missing or failing D1 causes controlled errors; it does not silently degrade to durable memory.
+- Cloudflare production requires D1 binding `DB`; Docker production requires `PERSISTENCE_DRIVER=sqlite` and a writable `SQLITE_DATABASE_PATH`. Missing or failing persistence causes controlled errors instead of silently degrading to memory.
 - Non-production can use in-process memory fallback for analysis storage. That memory is not shared across instances and is lost on restart.
 - Raw QVeris fetch cache is best-effort: D1 read/write/retention failures are logged and the request can continue without the cache.
 - `source_refs` are immutable per source execution version (`source.id` + `executionId` or retrieval time). When an `executionId` has a matching `qveris_fetch_cache` row, `raw_fetch_id` links to that raw row; otherwise it is `null`.

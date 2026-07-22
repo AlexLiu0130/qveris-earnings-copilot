@@ -2,15 +2,21 @@
   "name": "qveris-earnings-copilot",
   "version": "0.1.0",
   "private": true,
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "dev": "NEXT_DIST_DIR=.next-codex next dev --webpack",
     "build": "next build --webpack",
     "build:codex": "NEXT_DIST_DIR=.next-codex next build --webpack",
     "build:sites": "node scripts/build-sites-secret-safe.mjs",
+    "build:worker": "opennextjs-cloudflare build --config deploy/wrangler.cloudflare.jsonc",
+    "migrate:worker:local": "wrangler d1 migrations apply DB --config deploy/wrangler.cloudflare.jsonc --local",
+    "preview:worker": "npm run build:worker && npm run migrate:worker:local && wrangler dev --config deploy/wrangler.cloudflare.jsonc",
     "scan:dist-secrets": "node scripts/scan-dist-secrets.mjs",
     "db:generate": "drizzle-kit generate",
     "start": "NEXT_DIST_DIR=.next-codex next start",
-    "test": "node --import tsx --test 'lib/**/*.test.ts' 'app/**/*.test.ts'",
+    "test": "tsx --test \"lib/**/*.test.ts\" \"app/**/*.test.ts\"",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -24,11 +30,12 @@
   },
   "devDependencies": {
     "@opennextjs/cloudflare": "^1.20.1",
-    "@types/node": "^20",
+    "@types/node": "^24.13.3",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "drizzle-kit": "0.31.10",
     "tsx": "^4.20.6",
-    "typescript": "^5"
+    "typescript": "^5",
+    "wrangler": "4.110.0"
   }
 }

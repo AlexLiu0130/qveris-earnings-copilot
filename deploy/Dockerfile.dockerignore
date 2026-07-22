@@ -1,0 +1,14 @@
+.git
+.github
+.next
+.next-*
+.open-next
+.wrangler
+dist
+node_modules
+deploy/.env
+.env
+.env.*
+!.env.example
+npm-debug.log*
+tsconfig.tsbuildinfo
