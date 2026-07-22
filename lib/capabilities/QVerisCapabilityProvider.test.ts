@@ -641,6 +641,22 @@ test("full content hydration accepts QVeris object storage host", async (t) => {
   assert.equal(calls.length, 2);
 });
 
+test("full content hydration rewrites private QVeris result urls to the public API", async (t) => {
+  const calls = stubFetch(t, (url) => {
+    if (url === "https://qveris.ai/api/v1/tool-results/signed-result") {
+      return new Response(JSON.stringify({ earningsCalendar: [{ symbol: "MU", date: "2026-06-24" }] }));
+    }
+    return jsonResponse({
+      success: true,
+      result: { full_content_file_url: "http://172.22.207.245:8155/api/v1/api/v1/tool-results/signed-result" },
+    });
+  });
+
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.ai/api/v1", apiKey: "key" });
+  assert.equal((await provider.getEarningsCalendar({ from: "2026-06-24", to: "2026-06-24", universe: "MU" }))[0].ticker, "MU");
+  assert.equal(calls.length, 2);
+});
+
 test("business success false throws a structured QVerisCapabilityError", async (t) => {
   stubFetch(t, () => jsonResponse({
     success: false,

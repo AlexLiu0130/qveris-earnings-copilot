@@ -591,7 +591,7 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
       });
       if (!res.ok) throw new QVerisCapabilityError(toolId, "http_error", res.status);
       const payload = await res.json();
-      const data = await hydrateFullContent(payload?.result?.data ?? payload?.result ?? null);
+      const data = await hydrateFullContent(payload?.result?.data ?? payload?.result ?? null, this.baseUrl);
       if (payload?.success === false) {
         const error = capabilityErrorFromPayload(toolId, payload);
         if (error) throw error;
@@ -787,16 +787,24 @@ function parsePossiblyTruncated(value: unknown) {
   return value;
 }
 
-async function hydrateFullContent(value: unknown) {
+async function hydrateFullContent(value: unknown, baseUrl: string) {
   const record = asRecord(value);
   const url = stringValue(record?.full_content_file_url);
   if (!url) return value;
   try {
-    const hydrated = await fetchTrustedJson(new URL(url));
+    const hydrated = await fetchTrustedJson(publicQVerisResultUrl(new URL(url), baseUrl));
     return hydrated ?? value;
   } catch {
     return value;
   }
+}
+
+function publicQVerisResultUrl(url: URL, baseUrl: string) {
+  const token = url.pathname.match(/\/tool-results\/([A-Za-z0-9._~-]+)$/)?.[1];
+  const privateHost = /^(?:10\.|127\.|192\.168\.|172\.(?:1[6-9]|2\d|3[01])\.)/.test(url.hostname);
+  return url.protocol === "http:" && privateHost && token
+    ? new URL(`${baseUrl.replace(/\/+$/, "")}/tool-results/${token}`)
+    : url;
 }
 
 async function fetchTrustedJson(url: URL, redirects = 0): Promise<unknown | null> {
