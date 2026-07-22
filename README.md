@@ -66,6 +66,40 @@ npm run scan:dist-secrets
 
 `build:sites` builds through OpenNext Cloudflare in a temporary shadow app, removes local `.env*` leakage from the artifact path, prepares `dist/`, and scans local secret values visible in `.env*`. The scan does not cover Git history, remote runtime secrets, Sites config, or logs.
 
+## Docker Deployment
+
+Docker deployment uses Node.js 24 to build the OpenNext worker and runs it with
+Wrangler's local Workers runtime. The D1 binding is persisted in a Docker volume,
+and pending migrations are applied automatically before the service starts.
+
+Create the runtime environment file outside source control:
+
+```bash
+cp deploy/.env.example deploy/.env
+```
+
+Set at least `QVERIS_API_KEY`, then build and start the service:
+
+```bash
+docker compose -f deploy/docker-compose.yml build
+docker compose -f deploy/docker-compose.yml up -d
+docker compose -f deploy/docker-compose.yml ps
+```
+
+The application is available at `http://localhost:3000` by default. Change
+`APP_PORT` in `deploy/.env` to publish a different host port.
+
+To run an image published by the GitHub workflow instead of building locally:
+
+```bash
+docker compose -f deploy/docker-compose.yml pull
+docker compose -f deploy/docker-compose.yml up -d --no-build
+```
+
+The `earnings_d1_data` volume contains the local D1 state. Back up that volume
+before destructive Docker maintenance. Removing the volume deletes stored
+analyses and migration state.
+
 ## Local D1 Migration Check
 
 The schema lives in `db/schema.ts`; the generated migration is `drizzle/0000_lethal_grandmaster.sql`.
