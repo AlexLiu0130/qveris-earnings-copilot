@@ -100,7 +100,10 @@ docker compose -f deploy/docker-compose.yml up -d --no-build
 
 The `earnings_sqlite_data` volume contains `/data/earnings.db` and its SQLite WAL
 files. Back up that volume before destructive Docker maintenance. Removing the
-volume deletes stored analyses and migration state.
+volume deletes stored analyses and migration state. The container starts as root
+only long enough to repair ownership of the SQLite directory and files (including
+volumes created by older images), then runs the application as the unprivileged
+`node` user.
 
 This Compose topology is intentionally single-node. Do not run multiple app
 replicas against the same SQLite volume. Move persistence to a network database
