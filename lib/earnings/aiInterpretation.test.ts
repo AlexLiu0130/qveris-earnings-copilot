@@ -54,6 +54,37 @@ test("GOOG-like explicit capex evidence permits ecosystem mode", async (t) => {
   });
 });
 
+test("GOOG-like split cloud and capex evidence permits ecosystem mode", async (t) => {
+  await withAi(t, JSON.stringify({
+    mode: "ecosystem",
+    archetype: "cloud infrastructure expansion",
+    conclusion: { text: "Cloud growth and capital spending point to continued infrastructure expansion.", evidenceType: "inference", sourceIds: ["segments", "cash-flow"], confidence: "medium" },
+    transmissionChain: [],
+    confidence: "medium",
+  }), async () => {
+    const result = await generateAiInterpretation(base({
+      ticker: "PLATFORM",
+      company: { ticker: "PLATFORM", name: "Platform Co", sourceIds: ["company"] },
+      event: { id: "event", ticker: "PLATFORM", reportDate: "2026-07-22", timing: "after_close", status: "reported", sourceIds: ["results"] },
+      results: { ticker: "PLATFORM", revenueActual: 10, epsActual: 2, sourceIds: ["results"] },
+      financials: [
+        { date: "2026-06-30", period: "Q2", capitalExpenditure: -4, freeCashFlow: -1, sourceIds: ["cash-flow"] },
+        { date: "2026-03-31", period: "Q1", capitalExpenditure: -3, freeCashFlow: 1, sourceIds: ["cash-flow"] },
+      ],
+      segmentRevenue: [
+        { date: "2026-03-31", period: "Q1", segments: [{ name: "Cloud", revenue: 6 }], sourceIds: ["segments"] },
+        { date: "2025-12-31", period: "Q4", segments: [{ name: "Cloud", revenue: 5 }], sourceIds: ["segments"] },
+      ],
+      sources: [source("company"), source("results"), source("cash-flow"), source("segments")],
+    }));
+    assert.equal(result.role, "demand_initiator");
+    assert.equal(result.mode, "ecosystem");
+    assert.equal(result.transmissionChain.at(-2)?.to, "Semiconductor and data-center infrastructure demand");
+    assert.ok(result.companyDrivers.some((claim) => /Cloud/.test(claim.text)));
+    assert.ok(result.companyDrivers.some((claim) => /cash flow/i.test(claim.text)));
+  });
+});
+
 test("industry acronyms present in evidence are not rejected as invented tickers", async (t) => {
   await withAi(t, JSON.stringify({
     mode: "company",

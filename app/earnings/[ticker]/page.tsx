@@ -4,6 +4,7 @@ import type { EarningsAnalysis } from "@/lib/earnings/types";
 import { buildShareMarkdown } from "@/lib/share/shareCard";
 import { listAnalysesByTicker } from "@/lib/earnings/analysisStore";
 import { resolveAnalysis } from "@/lib/earnings/resolveAnalysis";
+import { isCurrentInterpretation } from "@/lib/earnings/aiInterpretation";
 import type { Dict } from "@/lib/i18n/dict";
 import { getDict } from "@/lib/i18n/server";
 import { CallIntelligencePanel } from "@/components/earnings/CallIntelligencePanel";
@@ -54,6 +55,10 @@ export default async function TickerResearchPage({
     throw error;
   }
   const savedAnalyses = await listAnalysesByTicker(analysis.ticker, 12);
+  const cachedInterpretation = savedAnalyses.find((candidate) =>
+    candidate.interpretation?.agent?.baseAnalysisId === analysis.analysisId
+    && isCurrentInterpretation(candidate.interpretation)
+  )?.interpretation;
   const comparisonAnalyses = filterPointInTimeAnalyses(savedAnalyses, analysis, analysisId);
   const quarterRows = buildQuarterComparison(comparisonAnalyses, 8);
   const quarterSources = [...new Map(comparisonAnalyses.flatMap((item) => item.sources).map((source) => [source.id, source])).values()];
@@ -76,12 +81,12 @@ export default async function TickerResearchPage({
           </div>
           <div className="rise rise-4">
             <AiInterpretationPanel
-              interpretation={analysis.interpretation}
+              interpretation={cachedInterpretation ?? analysis.interpretation}
               sources={analysis.sources}
               language={analysis.language}
               ticker={analysis.ticker}
               analysisId={analysis.analysisId}
-              autoLoad={!analysisId}
+              autoLoad={!analysisId && !cachedInterpretation}
             />
           </div>
           <div className="rise rise-4">

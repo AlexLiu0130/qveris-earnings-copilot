@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server";
 import { buildAnalysisId } from "@/lib/earnings/analysisId";
 import { getAnalysisById, listAnalysesByTicker, saveAnalysis } from "@/lib/earnings/analysisStore";
-import { generateAiInterpretation } from "@/lib/earnings/aiInterpretation";
+import {
+  EARNINGS_INTERPRETATION_CONTRACT_VERSION,
+  generateAiInterpretation,
+} from "@/lib/earnings/aiInterpretation";
 
 export async function POST(req: Request) {
   try {
@@ -13,7 +16,7 @@ export async function POST(req: Request) {
     if (!base) return NextResponse.json({ error: "ANALYSIS_NOT_FOUND" }, { status: 404 });
 
     const existing = (await listAnalysesByTicker(base.ticker, 20)).find((candidate) =>
-      candidate.interpretation?.agent?.contractVersion === "earnings_research_agent_v1"
+      candidate.interpretation?.agent?.contractVersion === EARNINGS_INTERPRETATION_CONTRACT_VERSION
       && candidate.interpretation.agent.baseAnalysisId === body.analysisId
     );
     if (existing?.interpretation) {

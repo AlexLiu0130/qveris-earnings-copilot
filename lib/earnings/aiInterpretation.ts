@@ -67,6 +67,11 @@ const investmentPattern = /\b(capex|capital expenditure|capacity|deployment|buil
 const memoryProductPattern = /\b(HBM\d*E?|DRAM|NAND|memory|semiconductor|wafer|bit shipment|data[- ]center)\b|高带宽内存|存储|半导体|晶圆|位元出货|数据中心/i;
 const memoryDemandPattern = /\b(AI|server|accelerator|customer|demand|pricing|mix|shipment|supply)\b|人工智能|服务器|加速器|客户|需求|定价|组合|出货|供给/i;
 const prohibitedPattern = /\b(buy|sell|hold|price target|overweight|underweight)\b|买入|卖出|持有|目标价|加仓|减仓/i;
+export const EARNINGS_INTERPRETATION_CONTRACT_VERSION = "earnings_research_agent_v2";
+
+export function isCurrentInterpretation(interpretation: AiInterpretation | undefined) {
+  return interpretation?.agent?.contractVersion === EARNINGS_INTERPRETATION_CONTRACT_VERSION;
+}
 
 export async function generateAiInterpretation(input: InterpretationInput): Promise<AiInterpretation> {
   if (input.mode === "no_event" && !input.event && !input.results) {
@@ -99,7 +104,7 @@ export async function generateAiInterpretation(input: InterpretationInput): Prom
             role: "system",
             content:
               "You are the research stage of QVeris Earnings Research Agent. Return one compact JSON object with keys mode, role, archetype, conclusion, companyDrivers, transmissionChain, counterEvidence, watchItems, confidence. conclusion MUST be a claim object, never a string. A claim is a flat object {text,evidenceType,sourceIds,confidence,rationale?,counterEvidence?,nextEvidence?,lag?}; evidenceType is fact, inference, or to_verify. An edge is also flat: {from,to,relation,lag,text,evidenceType,sourceIds,confidence}; never nest a claim object. Use only supplied evidence and sourceIds. Conclusion, facts, drivers, counter-evidence, watch items, and edges require valid sourceIds. Do not give investment advice, price targets, or name external beneficiary companies. Every edge from/to pair must exactly match one ordered pair in allowedTransmissionEdges; never reverse or skip nodes. Use mode ecosystem only when ecosystemEligibleSourceIds is non-empty, and every transmission edge must cite at least one of those eligible IDs; otherwise use company with an empty transmissionChain. " +
-              "Keep every text field under 120 Chinese characters or 220 English characters. Return at most 3 companyDrivers, 2 counterEvidence items, 3 watchItems, and 3 transmission edges. Distinguish reported facts from conditional inference. The deterministic layer already renders all metrics: do not include any number, percentage, date, currency amount, beat/miss calculation, or historical-record claim in narrative text. Focus on operating mechanism, why it matters, counter-evidence, and next validation. Exclude news opinions that contain investment recommendations. " +
+              "Keep every text field under 120 Chinese characters or 220 English characters. Return at most 3 companyDrivers, 2 counterEvidence items, 3 watchItems, and 3 transmission edges. Distinguish reported facts from conditional inference. The deterministic layer already renders all metrics: do not include any number, percentage, date, currency amount, beat/miss calculation, or historical-record claim in narrative text. Focus on operating mechanism, why it matters, counter-evidence, and next validation. Cite the sourceIds attached to the exact evidence object supporting each claim; a company profile cannot support an operating claim. Exclude news opinions that contain investment recommendations. " +
               "Never describe revenue as beating or missing expectations unless estimates.revenueEstimate exists. Never describe EPS as beating or missing expectations unless estimates.epsEstimate exists. Company guidance is not analyst consensus; name it as company guidance. " +
               "Use validatedSignals as the preferred numeric evidence. Do not derive or calculate any other numeric value. " +
               (input.language === "zh" ? "Write all narrative text in Simplified Chinese." : "Write all narrative text in English."),
@@ -252,6 +257,59 @@ function deterministicFallback(input: InterpretationInput, reason: string, route
       });
     }
   }
+  const previousFinancial = input.financials[1];
+  const financialDriverIds = ids(currentFinancial?.sourceIds, previousFinancial?.sourceIds);
+  if (
+    currentFinancial?.grossMargin != null
+    && previousFinancial?.grossMargin != null
+    && financialDriverIds.length
+    && Math.abs(currentFinancial.grossMargin - previousFinancial.grossMargin) >= 0.002
+  ) {
+    const improved = currentFinancial.grossMargin > previousFinancial.grossMargin;
+    companyDrivers.push({
+      text: zh
+        ? `最近季度毛利率较上一季${improved ? "改善" : "收窄"}，收入增长与盈利质量需要结合产品组合和投入节奏判断。`
+        : `Latest-quarter gross margin ${improved ? "improved" : "contracted"} sequentially, so growth quality depends on mix and investment cadence.`,
+      evidenceType: "inference",
+      sourceIds: financialDriverIds,
+      confidence: "medium",
+    });
+  }
+  if (
+    currentFinancial?.capitalExpenditure != null
+    && currentFinancial.freeCashFlow != null
+    && currentFinancial.freeCashFlow < 0
+    && financialDriverIds.length
+  ) {
+    companyDrivers.push({
+      text: zh
+        ? "资本开支与负自由现金流表明扩张投入正在压低短期现金转化，后续需由收入和利润率兑现验证。"
+        : "Capital spending and negative free cash flow show expansion is weighing on near-term cash conversion and requires later revenue and margin validation.",
+      evidenceType: "inference",
+      sourceIds: financialDriverIds,
+      confidence: "medium",
+    });
+  }
+  const [latestSegments, priorSegments] = input.segmentRevenue;
+  if (latestSegments && priorSegments) {
+    const priorByName = new Map(priorSegments.segments.map((segment) => [segment.name.toLowerCase(), segment.revenue]));
+    const growthLeader = latestSegments.segments
+      .map((segment) => ({ ...segment, prior: priorByName.get(segment.name.toLowerCase()) }))
+      .filter((segment) => segment.revenue != null && segment.prior != null && segment.revenue > segment.prior)
+      .sort((left, right) => (right.revenue! - right.prior!) - (left.revenue! - left.prior!))[0];
+    const segmentIds = ids(latestSegments.sourceIds, priorSegments.sourceIds);
+    if (growthLeader && segmentIds.length) {
+      companyDrivers.push({
+        text: zh
+          ? `最近可用分部数据中，${growthLeader.name}是环比增长的重要来源，需继续验证其增速与利润贡献。`
+          : `${growthLeader.name} was a leading source of sequential growth in the latest available segment data; its pace and profit contribution need validation.`,
+        evidenceType: "inference",
+        sourceIds: segmentIds,
+        confidence: "medium",
+      });
+    }
+  }
+  const outputDrivers = companyDrivers.slice(0, 5);
   return {
     status: "available",
     mode: "company",
@@ -263,7 +321,7 @@ function deterministicFallback(input: InterpretationInput, reason: string, route
       sourceIds: resultIds,
       confidence: "low",
     },
-    companyDrivers,
+    companyDrivers: outputDrivers,
     transmissionChain: [],
     counterEvidence,
     watchItems,
@@ -272,14 +330,14 @@ function deterministicFallback(input: InterpretationInput, reason: string, route
       reason: zh ? "模型输出未通过证据校验，当前展示由已验证字段生成的保守解读。" : "The model output failed evidence checks; this conservative read uses validated fields only.",
     },
     agent: {
-      contractVersion: "earnings_research_agent_v1",
+      contractVersion: EARNINGS_INTERPRETATION_CONTRACT_VERSION,
       stages: [
         { key: "evidence", state: "completed", detail: zh ? "已冻结并索引当前财报快照。" : "Current earnings snapshot frozen and indexed." },
         { key: "route", state: "completed", detail: route?.rationale ?? "company_only" },
         { key: "research", state: "degraded", detail: zh ? "模型不可用或输出未通过校验。" : "Model unavailable or output rejected." },
         { key: "audit", state: "completed", detail: zh ? "已生成仅基于确定性字段的保守结果。" : "Conservative result generated from deterministic fields only." },
       ],
-      acceptedClaims: 1 + companyDrivers.length + counterEvidence.length + watchItems.length,
+      acceptedClaims: 1 + outputDrivers.length + counterEvidence.length + watchItems.length,
       rejectedClaims: 0,
     },
   };
@@ -385,7 +443,7 @@ function hasCitableEventEvidence(input: InterpretationInput, knownSourceIds: Set
 
 function promptInput(input: InterpretationInput, route: AgentRoute) {
   return {
-    contractVersion: "earnings_research_agent_v1",
+    contractVersion: EARNINGS_INTERPRETATION_CONTRACT_VERSION,
     ticker: input.ticker,
     mode: input.mode,
     route: { role: route.role, rationale: route.rationale },
@@ -500,7 +558,7 @@ function normalize(
       reason: language === "zh" ? "该解读由模型基于所列来源生成，仍需核对引用证据。" : "Model-generated interpretation; verify cited evidence.",
     },
     agent: {
-      contractVersion: "earnings_research_agent_v1",
+      contractVersion: EARNINGS_INTERPRETATION_CONTRACT_VERSION,
       stages: [
         { key: "evidence", state: "completed", detail: language === "zh" ? "已冻结并索引当前财报快照。" : "Current earnings snapshot frozen and indexed." },
         { key: "route", state: "completed", detail: context.role },
@@ -614,7 +672,8 @@ function routeAgent(input: InterpretationInput, knownSourceIds: Set<string>): Ag
 }
 
 function demandInitiatorSourceIds(input: InterpretationInput, knownSourceIds: Set<string>) {
-  const ids = new Set<string>();
+  const platformIds = new Set<string>();
+  const investmentIds = new Set<string>();
   const evidence: Array<{ text: string; sourceIds?: string[] }> = [];
   const collect = (text: unknown, sourceIds: string[] | undefined) => {
     if (typeof text === "string") evidence.push({ text, sourceIds });
@@ -629,11 +688,18 @@ function demandInitiatorSourceIds(input: InterpretationInput, knownSourceIds: Se
   input.transcript?.keyQuotes?.forEach((item) => collect(item.text, item.sourceIds));
 
   evidence.forEach(({ text, sourceIds }) => {
-    if (platformPattern.test(text) && investmentPattern.test(text)) {
-      sourceIds?.filter((id) => knownSourceIds.has(id)).forEach((id) => ids.add(id));
-    }
+    const validIds = sourceIds?.filter((id) => knownSourceIds.has(id)) ?? [];
+    if (platformPattern.test(text)) validIds.forEach((id) => platformIds.add(id));
+    if (investmentPattern.test(text)) validIds.forEach((id) => investmentIds.add(id));
   });
-  return ids;
+  input.financials
+    .filter((row) => row.capitalExpenditure != null)
+    .flatMap((row) => row.sourceIds)
+    .filter((id) => knownSourceIds.has(id))
+    .forEach((id) => investmentIds.add(id));
+  return platformIds.size && investmentIds.size
+    ? new Set([...platformIds, ...investmentIds])
+    : new Set<string>();
 }
 
 function upstreamSupplierSourceIds(input: InterpretationInput, knownSourceIds: Set<string>) {

@@ -71,7 +71,7 @@ export interface EarningsInterpretation {
     reason: string;
   };
   agent?: {
-    contractVersion: "earnings_research_agent_v1";
+    contractVersion: "earnings_research_agent_v1" | "earnings_research_agent_v2";
     baseAnalysisId?: string;
     stages: Array<{
       key: "evidence" | "route" | "research" | "audit";
