@@ -91,7 +91,9 @@ docker compose -f deploy/docker-compose.yml ps
 The application is available at `http://localhost:3000` by default. Change
 `APP_PORT` in `deploy/.env` to publish a different host port.
 
-To run an image published by the GitHub workflow instead of building locally:
+The GitHub `Docker image` workflow is manual-only. Run it from the Actions page
+when a new GHCR image is required. To use that published image instead of
+building locally:
 
 ```bash
 docker compose -f deploy/docker-compose.yml pull
