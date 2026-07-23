@@ -38,14 +38,14 @@ export function detectDataConflicts(input: {
     && input.estimates?.revenueEstimate != null
     && meaningfullyDifferent(event.revenueEstimate, input.estimates.revenueEstimate, 0.005, 1)
   ) {
-    conflicts.push(zh ? "事件营收预期与提供方营收预期不一致，已采用事件值。" : "Event revenue estimate differs from provider revenue estimate; using the event value.");
+    conflicts.push(zh ? "日历营收预期与同财季一致预期不一致，已采用同财季一致预期。" : "Calendar revenue estimate differs from the same-quarter consensus; using the same-quarter consensus.");
   }
   if (
     event?.epsEstimate != null
     && input.estimates?.epsEstimate != null
     && meaningfullyDifferent(event.epsEstimate, input.estimates.epsEstimate, 0.01, 0.01)
   ) {
-    conflicts.push(zh ? "事件 EPS 预期与提供方 EPS 预期不一致，已采用事件值。" : "Event EPS estimate differs from provider EPS estimate; using the event value.");
+    conflicts.push(zh ? "日历 EPS 预期与同财季一致预期不一致，已采用同财季一致预期。" : "Calendar EPS estimate differs from the same-quarter consensus; using the same-quarter consensus.");
   }
 
   const latest = input.financials[0];
@@ -78,38 +78,66 @@ export function resolveEventEstimates(
   history: HistoricalEarnings[] = [],
 ) {
   const historical = event
-    ? history.find((row) => row.reportDate === event.reportDate && (row.revenueEstimate != null || row.epsEstimate != null))
+    ? history.find((row) => sameEarningsPeriod(row, event) && (row.revenueEstimate != null || row.epsEstimate != null))
     : undefined;
-  const resolved = estimates ?? (historical ? {
-    ticker: event!.ticker,
-    eventId: event!.id,
-    revenueEstimate: historical.revenueEstimate,
-    epsEstimate: historical.epsEstimate,
-    sourceIds: historical.sourceIds,
+  const historicalRevenueIds = historical?.fieldSourceIds?.revenueEstimate ?? (historical?.revenueEstimate != null ? historical.sourceIds : undefined);
+  const historicalEpsIds = historical?.fieldSourceIds?.epsEstimate ?? (historical?.epsEstimate != null ? historical.sourceIds : undefined);
+  const revenueEstimate = historical?.revenueEstimate ?? estimates?.revenueEstimate;
+  const epsEstimate = historical?.epsEstimate ?? estimates?.epsEstimate;
+  const resolved = estimates || historical ? {
+    ...estimates,
+    ticker: event?.ticker ?? estimates!.ticker,
+    eventId: event?.id ?? estimates?.eventId,
+    revenueEstimate,
+    epsEstimate,
+    sourceIds: [...new Set([
+      ...(estimates?.sourceIds ?? []),
+      ...(historical && (historical.revenueEstimate != null || historical.epsEstimate != null) ? historical.sourceIds : []),
+    ])],
     fieldSourceIds: {
-      revenueEstimate: historical.fieldSourceIds?.revenueEstimate ?? (historical.revenueEstimate != null ? historical.sourceIds : undefined),
-      epsEstimate: historical.fieldSourceIds?.epsEstimate ?? (historical.epsEstimate != null ? historical.sourceIds : undefined),
+      ...estimates?.fieldSourceIds,
+      revenueEstimate: historical?.revenueEstimate != null
+        ? historicalRevenueIds
+        : estimates?.fieldSourceIds?.revenueEstimate ?? estimates?.sourceIds,
+      epsEstimate: historical?.epsEstimate != null
+        ? historicalEpsIds
+        : estimates?.fieldSourceIds?.epsEstimate ?? estimates?.sourceIds,
     },
-  } satisfies EarningsEstimates : null);
+  } satisfies EarningsEstimates : null;
   if (!event || (event.revenueEstimate == null && event.epsEstimate == null)) return resolved;
   const providerIds = resolved?.sourceIds ?? [];
   return {
     ...resolved,
     ticker: event.ticker,
     eventId: event.id,
-    revenueEstimate: event.revenueEstimate ?? resolved?.revenueEstimate,
-    epsEstimate: event.epsEstimate ?? resolved?.epsEstimate,
+    revenueEstimate: historical?.revenueEstimate ?? event.revenueEstimate ?? resolved?.revenueEstimate,
+    epsEstimate: historical?.epsEstimate ?? event.epsEstimate ?? resolved?.epsEstimate,
     sourceIds: [...new Set([...event.sourceIds, ...providerIds])],
     fieldSourceIds: {
-      revenueEstimate: event.revenueEstimate != null
-        ? event.sourceIds
-        : resolved?.fieldSourceIds?.revenueEstimate ?? providerIds,
-      epsEstimate: event.epsEstimate != null
-        ? event.sourceIds
-        : resolved?.fieldSourceIds?.epsEstimate ?? providerIds,
+      revenueEstimate: historical?.revenueEstimate != null
+        ? historicalRevenueIds
+        : event.revenueEstimate != null
+          ? event.sourceIds
+          : resolved?.fieldSourceIds?.revenueEstimate ?? providerIds,
+      epsEstimate: historical?.epsEstimate != null
+        ? historicalEpsIds
+        : event.epsEstimate != null
+          ? event.sourceIds
+          : resolved?.fieldSourceIds?.epsEstimate ?? providerIds,
       estimateCount: resolved?.fieldSourceIds?.estimateCount ?? providerIds,
     },
   } satisfies EarningsEstimates;
+}
+
+function sameEarningsPeriod(row: HistoricalEarnings, event: EarningsEvent) {
+  if (row.reportDate === event.reportDate) return true;
+  const eventQuarter = quarter(event.fiscalPeriod);
+  const rowQuarter = quarter(row.fiscalPeriod);
+  const rowYear = row.fiscalPeriod?.match(/^(\d{4})-/)?.[1];
+  return event.fiscalYear != null
+    && eventQuarter != null
+    && rowQuarter === eventQuarter
+    && Number(rowYear) === event.fiscalYear;
 }
 
 export function selectFiscalPeriod<T extends { fiscalYear?: number; period?: string }>(
@@ -132,7 +160,10 @@ function meaningfullyDifferent(a?: number, b?: number, relativeTolerance = 0.05,
 }
 
 function quarter(value?: string) {
-  return value?.match(/Q([1-4])/i)?.[1];
+  const named = value?.match(/Q([1-4])/i)?.[1];
+  if (named) return named;
+  const month = value?.match(/^\d{4}-(\d{2})-\d{2}$/)?.[1];
+  return month ? String(Math.ceil(Number(month) / 3)) : undefined;
 }
 
 function escapeRegex(value: string) {

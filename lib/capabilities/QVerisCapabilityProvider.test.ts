@@ -260,7 +260,7 @@ test("calendar chunks long ranges with bounded concurrency and keeps early MU ev
 
   assert.equal(maxActive, 3);
   assert.equal(calls.length, 12);
-  assert.deepEqual(calls[0].body?.parameters, { from: "2026-06-16", to: "2026-06-22" });
+  assert.ok(calls.some((call) => JSON.stringify(call.body?.parameters) === JSON.stringify({ from: "2026-06-16", to: "2026-06-22" })));
   assert.ok(calls.every((call) => !("symbol" in (call.body?.parameters as Record<string, unknown>))));
   assert.deepEqual(events.map((event) => event.id), ["MU-2026-06-24"]);
   assert.equal(events[0].epsEstimate, 21.4019);
@@ -372,6 +372,35 @@ test("event estimates and historical eps accept matching fiscal quarter identity
   assert.equal(results?.epsActual, 1.23);
 });
 
+test("same-quarter financial statement revenue overrides an incompatible calendar basis", async (t) => {
+  stubFetch(t, (_url, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
+    if (body.tool_id === "financialmodelingprep.stable.incomestatement.retrieve.v1.dd6d583f") {
+      return jsonResponse({ success: true, result: { data: [
+        { date: "2026-06-30", fiscalYear: 2026, period: "Q2", revenue: 119_796_000_000 },
+      ] } });
+    }
+    return jsonResponse({ success: true, result: { data: body.tool_id === "alphavantage.earnings.retrieve.v1.467a92c0" ? { quarterlyEarnings: [] } : [] } });
+  });
+
+  const event: EarningsEvent = {
+    id: "GOOGL-2026-07-22",
+    ticker: "GOOGL",
+    fiscalPeriod: "Q2",
+    fiscalYear: 2026,
+    reportDate: "2026-07-22",
+    timing: "after_close",
+    status: "reported",
+    revenueActual: 103_617_000_000,
+    sourceIds: ["calendar"],
+  };
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
+  const results = await provider.getEarningsResults("GOOGL", event);
+
+  assert.equal(results?.revenueActual, 119_796_000_000);
+  assert.ok(results?.fieldSourceIds?.revenueActual?.some((id) => id.includes("get_income_statement")));
+});
+
 test("optional segment failure does not discard core earnings results", async (t) => {
   stubFetch(t, (_url, init) => {
     const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
@@ -396,7 +425,41 @@ test("optional segment failure does not discard core earnings results", async (t
   const results = await provider.getEarningsResults("ASML", event);
 
   assert.equal(results?.revenueActual, 9_326_500_000);
-  assert.equal(results?.epsActual, 7.58);
+  assert.equal(results?.epsActual, 7.59);
+  assert.match(results?.guidanceText ?? "", /Q3 2026 total net sales/);
+  assert.ok(results?.fieldSourceIds?.epsActual?.some((id) => id.includes("official_quarterly_results")));
+  assert.ok(results?.fieldSourceIds?.guidanceText?.some((id) => id.includes("official_quarterly_results")));
+});
+
+test("TSM official quarterly page fills the missing revenue benchmark and forward guidance", async (t) => {
+  stubFetch(t, (_url, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
+    if (body.tool_id === "alphavantage.earnings_estimates.retrieve.v1.467a92c0") {
+      return jsonResponse({ success: true, execution_id: "estimates-exec", result: { data: { estimates: [
+        { horizon: "fiscal quarter", date: "2026-06-30", fiscalYear: 2026, fiscalPeriod: "Q2", eps_estimate_average: "3.87", revenue_estimate_average: null },
+      ] } } });
+    }
+    if (body.tool_id === "financialmodelingprep.stable.incomestatement.retrieve.v1.dd6d583f") {
+      return jsonResponse({ success: true, result: { data: [
+        { date: "2026-06-30", fiscalYear: 2026, period: "Q2", revenue: 1_270_381_000_000 },
+      ] } });
+    }
+    return jsonResponse({ success: true, result: { data: body.tool_id === "alphavantage.earnings.retrieve.v1.467a92c0" ? { quarterlyEarnings: [] } : [] } });
+  });
+
+  const event: EarningsEvent = { id: "TSM-2026-07-16", ticker: "TSM", fiscalPeriod: "Q2", fiscalYear: 2026, reportDate: "2026-07-16", timing: "before_open", status: "reported", epsEstimate: 3.87, sourceIds: ["calendar"] };
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
+  const estimates = await provider.getEarningsEstimates("TSM", event);
+  const results = await provider.getEarningsResults("TSM", event);
+
+  assert.equal(estimates?.revenueEstimate, 1_255_320_000_000);
+  assert.equal(estimates?.revenueEstimateBasis, "company_guidance_midpoint");
+  assert.equal(estimates?.epsEstimate, 3.87);
+  assert.equal(estimates?.epsCurrency, "USD");
+  assert.ok(estimates?.fieldSourceIds?.revenueEstimate?.some((id) => id.includes("official_quarterly_results")));
+  assert.match(results?.guidanceText ?? "", /Q3 2026 net revenue/);
+  assert.equal(results?.epsCurrency, "USD");
+  assert.ok(results?.fieldSourceIds?.guidanceText?.some((id) => id.includes("official_quarterly_results")));
 });
 
 test("guidance extraction keeps company ranges and financial outlooks, not analyst questions", () => {
@@ -445,6 +508,17 @@ test("guidance extraction keeps company ranges and financial outlooks, not analy
   assert.equal(extractGuidanceText([
     { speaker: "CFO", content: "FY2025 revenue was in line with guidance." },
   ]), undefined);
+});
+
+test("guidance extraction prioritizes numeric next-quarter outlook over long-term agreement commentary", () => {
+  const text = extractGuidanceText([
+    { speaker: "CEO", content: "When completed, we expect approximately half or more of our company revenue to be under these SCAs with customers across end markets." },
+    { speaker: "CFO", content: "Now turning to guidance: we expect fiscal Q4 revenue to be a record $50 billion, plus or minus $1 billion; gross margin to be approximately 86%; and operating expenses to be approximately $1.65 billion. Based on a share count of approximately 1.15 billion diluted shares, we expect EPS to be a record $31 per share, plus or minus $1." },
+  ]);
+
+  assert.match(text ?? "", /fiscal Q4 revenue/);
+  assert.match(text ?? "", /EPS to be a record \$31/);
+  assert.doesNotMatch(text ?? "", /under these SCAs/);
 });
 
 test("calendar rejects malformed success payload instead of returning fake empty data", async (t) => {

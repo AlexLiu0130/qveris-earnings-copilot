@@ -1,7 +1,7 @@
 import type { AnalyzeEarningsRequest, EarningsAnalysis } from "@/lib/earnings/types";
 
 const ANALYSIS_ID_SEQUENCE_KEY = Symbol.for("qveris.earnings.analysisId.sequence.v1");
-const ANALYSIS_PIPELINE_VERSION = 3;
+const ANALYSIS_PIPELINE_VERSION = 11;
 
 export function buildAnalysisId(input: Pick<EarningsAnalysis, "ticker" | "mode" | "generatedAt">) {
   const base = `${normalizeTicker(input.ticker)}-${input.mode}-${compactTimestamp(input.generatedAt)}`;
@@ -20,6 +20,7 @@ export function requestKey(request: AnalyzeEarningsRequest) {
     includeFilings: request.includeFilings ?? true,
     includeTranscript: request.includeTranscript ?? true,
     includeAiSummary: request.includeAiSummary ?? true,
+    includeAiInterpretation: request.includeAiInterpretation ?? true,
     maxNewsItems: Math.min(Math.max(request.maxNewsItems ?? 5, 0), 20),
   });
 }

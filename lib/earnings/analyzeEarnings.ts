@@ -7,6 +7,7 @@ import { detectEarningsMode } from "@/lib/earnings/detectEarningsMode";
 import { generateKeyQuestions } from "@/lib/earnings/generateKeyQuestions";
 import { generateResearchSummary } from "@/lib/earnings/generateResearchSummary";
 import { generateAiSummary } from "@/lib/earnings/aiSummary";
+import { generateAiInterpretation, unavailableInterpretation } from "@/lib/earnings/aiInterpretation";
 import { scoreConfidence } from "@/lib/earnings/confidenceScoring";
 import { buildAnalysisId } from "@/lib/earnings/analysisId";
 import { missingFromStatus, stateFor } from "@/lib/earnings/capabilityStatus";
@@ -200,7 +201,7 @@ export async function analyzeEarnings(
   const analysisId = buildAnalysisId({ ticker, mode, generatedAt });
   const missing = [...new Set([...missingFromStatus(capabilityStatus), ...missingSourceIds.map((id) => `source:${id}`)])];
   const translateCall = request.includeAiSummary !== false && language === "zh" && transcript?.available;
-  const [ai, localizedTranscript] = await Promise.all([
+  const [ai, interpretation, localizedTranscript] = await Promise.all([
     request.includeAiSummary === false || translateCall ? null : generateAiSummary({
       ticker,
       language,
@@ -220,6 +221,24 @@ export async function analyzeEarnings(
       beatMiss,
       missing,
       confidence,
+      sources,
+    }),
+    request.includeAiInterpretation === false ? Promise.resolve(unavailableInterpretation("AI_INTERPRETATION_DISABLED")) : generateAiInterpretation({
+      ticker,
+      language,
+      mode,
+      company,
+      event,
+      estimates,
+      results,
+      financials,
+      segmentRevenue,
+      news,
+      filings,
+      transcript,
+      missing,
+      conflicts,
+      capabilityStatus,
       sources,
     }),
     translateCall ? translateTranscript(transcript, language) : transcript,
@@ -282,6 +301,7 @@ export async function analyzeEarnings(
     qualityOfEarnings: generated.qualityOfEarnings,
     summaryBullets: generated.summaryBullets,
     watchNext: generated.watchNext,
+    interpretation,
     claimSourceIds,
     confidence,
     caveats: language === "zh"
@@ -314,6 +334,7 @@ export function toAnalyzeResponse(analysis: EarningsAnalysis): AnalyzeEarningsRe
       riskSignals: analysis.riskSignals,
       qualityOfEarnings: analysis.qualityOfEarnings,
       watchNext: analysis.watchNext,
+      interpretation: analysis.interpretation,
       claimSourceIds: analysis.claimSourceIds ?? unavailableClaimSourceIds(analysis),
       confidence: analysis.confidence,
       caveats: analysis.caveats,

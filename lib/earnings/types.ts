@@ -28,6 +28,63 @@ export interface SourceRef {
 }
 
 export type ClaimSourceIds = string[] | "unavailable";
+export type InterpretationEvidenceType = "fact" | "inference" | "to_verify" | "unverified";
+export type InterpretationMode = "company" | "ecosystem";
+export type InterpretationRole =
+  | "company_only"
+  | "demand_initiator"
+  | "upstream_supplier"
+  | "infrastructure_enabler"
+  | "downstream_monetizer"
+  | "peer_or_competitor";
+
+export interface EarningsInterpretationClaim {
+  text: string;
+  evidenceType: InterpretationEvidenceType;
+  sourceIds: ClaimSourceIds;
+  confidence: ConfidenceLabel;
+  rationale?: string;
+  counterEvidence?: string;
+  nextEvidence?: string;
+  lag?: string;
+}
+
+export interface EarningsInterpretationEdge extends EarningsInterpretationClaim {
+  from: string;
+  to: string;
+  relation: string;
+  lag: string;
+}
+
+export interface EarningsInterpretation {
+  status: "available" | "unavailable";
+  mode: InterpretationMode;
+  role?: InterpretationRole;
+  archetype?: string;
+  conclusion?: EarningsInterpretationClaim;
+  companyDrivers: EarningsInterpretationClaim[];
+  transmissionChain: EarningsInterpretationEdge[];
+  counterEvidence: EarningsInterpretationClaim[];
+  watchItems: EarningsInterpretationClaim[];
+  confidence: {
+    label: ConfidenceLabel;
+    reason: string;
+  };
+  agent?: {
+    contractVersion: "earnings_research_agent_v1";
+    baseAnalysisId?: string;
+    stages: Array<{
+      key: "evidence" | "route" | "research" | "audit";
+      state: "completed" | "degraded" | "skipped";
+      detail: string;
+    }>;
+    acceptedClaims: number;
+    rejectedClaims: number;
+  };
+  reason?: string;
+}
+
+export type AiInterpretation = EarningsInterpretation;
 
 export interface EarningsClaimSourceIds {
   oneLineVerdict: ClaimSourceIds;
@@ -68,7 +125,9 @@ export interface EarningsEstimates {
   ticker: string;
   eventId?: string;
   revenueEstimate?: number;
+  revenueEstimateBasis?: "consensus" | "company_guidance_midpoint";
   epsEstimate?: number;
+  epsCurrency?: string;
   revenueGrowthEstimateYoY?: number;
   epsGrowthEstimateYoY?: number;
   estimateCount?: number;
@@ -81,6 +140,7 @@ export interface EarningsResults {
   eventId?: string;
   revenueActual?: number;
   epsActual?: number;
+  epsCurrency?: string;
   grossMargin?: number; // ratio: 0.54 means 54%
   operatingMargin?: number; // ratio: 0.24 means 24%
   netIncome?: number;
@@ -306,6 +366,7 @@ export interface EarningsAnalysis {
   qualityOfEarnings: string[];
   summaryBullets: string[];
   watchNext: string[];
+  interpretation?: EarningsInterpretation;
   claimSourceIds?: EarningsClaimSourceIds;
   confidence: {
     label: ConfidenceLabel;
@@ -331,6 +392,7 @@ export interface AnalyzeEarningsRequest {
   includeFilings?: boolean;
   includeTranscript?: boolean;
   includeAiSummary?: boolean;
+  includeAiInterpretation?: boolean;
   maxNewsItems?: number;
 }
 
@@ -351,6 +413,7 @@ export interface AnalyzeEarningsResponse {
     | "riskSignals"
     | "qualityOfEarnings"
     | "watchNext"
+    | "interpretation"
     | "claimSourceIds"
     | "confidence"
     | "caveats"
@@ -366,6 +429,7 @@ export interface AnalyzeEarningsResponse {
     | "riskSignals"
     | "qualityOfEarnings"
     | "watchNext"
+    | "interpretation"
     | "claimSourceIds"
     | "confidence"
     | "caveats"

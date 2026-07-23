@@ -56,6 +56,7 @@ interface MemoryStore {
 }
 
 const MEMORY_STORE_KEY = Symbol.for("qveris.earnings.analysisStore.memory.v1");
+const AI_FAILURE_TTL_MS = 60_000;
 const memoryStore = ((globalThis as typeof globalThis & Partial<Record<symbol, MemoryStore>>)[MEMORY_STORE_KEY] ??= {
   byId: new Map<string, CacheEntry>(),
   byRequest: new Map<string, RequestEntry>(),
@@ -65,7 +66,11 @@ const { byId, byRequest } = memoryStore;
 export async function saveAnalysis(request: AnalyzeEarningsRequest, analysis: EarningsAnalysis) {
   const key = requestKey(request);
   const now = Date.now();
-  const cacheExpiresAt = hasRetryableIssue(analysis) ? now - 1 : now + TTL_MS;
+  const cacheExpiresAt = hasRetryableIssue(analysis)
+    ? now - 1
+    : hasTransientInterpretationFailure(analysis)
+      ? now + AI_FAILURE_TTL_MS
+      : now + TTL_MS;
 
   const db = getD1();
   if (!db) {
@@ -204,7 +209,13 @@ function remember(key: string, analysis: EarningsAnalysis, cacheExpiresAt: numbe
 }
 
 function hasRetryableIssue(analysis: EarningsAnalysis) {
-  return analysis.issues?.some((issue) => issue.retryable) ?? false;
+  return (analysis.issues?.some((issue) => issue.retryable) ?? false)
+    || ((analysis.mode === "flash" || analysis.mode === "combined") && analysis.missing.includes("results"));
+}
+
+function hasTransientInterpretationFailure(analysis: EarningsAnalysis) {
+  return analysis.interpretation?.status === "unavailable"
+    && analysis.interpretation.reason !== "AI_INTERPRETATION_DISABLED";
 }
 
 function evictExpiredRequests() {

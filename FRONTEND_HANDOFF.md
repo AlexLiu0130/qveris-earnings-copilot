@@ -261,7 +261,7 @@ EARNINGS_UNIVERSE=core
 ALLOW_DEMO_DATA=false
 QVERIS_API_KEY=
 QVERIS_BASE_URL=https://qveris.ai/api/v1
-OPENAI_API_KEY=
+DEEPSEEK_API_KEY=
 OPENAI_BASE_URL=https://api.deepseek.com
 OPENAI_MODEL=deepseek-v4-flash
 ```

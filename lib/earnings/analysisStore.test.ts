@@ -321,6 +321,44 @@ test("retryable data issue snapshots persist without request-cache reuse", async
   assert.equal(await getCachedAnalysis(request), null);
 });
 
+test("reported snapshots missing results persist without request-cache reuse", async () => {
+  const db = new FakeD1();
+  const request = sampleRequest();
+  const analysis = sampleAnalysis({ mode: "flash", results: null, missing: ["results"] });
+  __setD1ForTests(db);
+
+  await saveAnalysis(request, analysis);
+
+  assert.equal(await getCachedAnalysis(request), null);
+  assert.equal((await getAnalysisById(analysis.analysisId))?.analysisId, analysis.analysisId);
+});
+
+test("AI interpretation failures use a short request-cache window", async () => {
+  const db = new FakeD1();
+  const request = sampleRequest();
+  const before = Date.now();
+  const analysis = sampleAnalysis({
+    interpretation: {
+      status: "unavailable",
+      mode: "company",
+      companyDrivers: [],
+      transmissionChain: [],
+      counterEvidence: [],
+      watchItems: [],
+      confidence: { label: "low", reason: "AI_INTERPRETATION_UNAVAILABLE" },
+      reason: "AI_INTERPRETATION_UNAVAILABLE",
+    },
+  });
+  __setD1ForTests(db);
+
+  await saveAnalysis(request, analysis);
+
+  const expiresAt = Date.parse(String(db.table("research_snapshots").get(analysis.analysisId)?.cache_expires_at));
+  assert.ok(expiresAt >= before + 55_000);
+  assert.ok(expiresAt <= Date.now() + 65_000);
+  assert.equal((await getCachedAnalysis(request))?.analysisId, analysis.analysisId);
+});
+
 test("request cache checks warm memory before D1", async () => {
   const db = new FakeD1();
   const request = sampleRequest();

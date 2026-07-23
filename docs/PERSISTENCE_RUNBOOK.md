@@ -79,7 +79,7 @@
 - `scripts/prepare-sites-open-next.mjs` 会把 `.openai/hosting.json` 和 `drizzle/` 复制到 `dist/.openai/`，但这不等于迁移已自动应用。
 - 不要虚构 Sites 自动迁移已验证；部署前必须人工确认 D1 数据库已绑定且迁移已执行。
 - 生产 Sites 运行环境按交接已配置为 `EARNINGS_PROVIDER=qveris`、`EARNINGS_UNIVERSE=core`、`ALLOW_DEMO_DATA=false`，但线上仍旧版本未发布；不要把环境已配置等同于当前代码已上线。
-- runtime secrets/config 只应配置在 Sites/运行时环境，不要写入源码、`dist/`、文档或聊天：`QVERIS_API_KEY`、`OPENAI_API_KEY`，以及需要覆盖默认值时的 `QVERIS_BASE_URL`、`OPENAI_BASE_URL`、`OPENAI_MODEL`、`EARNINGS_PROVIDER`、`EARNINGS_UNIVERSE`、`ALLOW_DEMO_DATA`。
+- runtime secrets/config 只应配置在 Sites/运行时环境，不要写入源码、`dist/`、文档或聊天：`QVERIS_API_KEY`、`DEEPSEEK_API_KEY`（或兼容的 `OPENAI_API_KEY`），以及需要覆盖默认值时的 `QVERIS_BASE_URL`、`OPENAI_BASE_URL`、`OPENAI_MODEL`、`EARNINGS_PROVIDER`、`EARNINGS_UNIVERSE`、`ALLOW_DEMO_DATA`。
 
 ## Secret-safe Build 与扫描
 

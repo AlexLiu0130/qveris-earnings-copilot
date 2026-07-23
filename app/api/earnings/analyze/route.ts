@@ -12,7 +12,11 @@ export async function POST(req: Request) {
     if (!cached) await saveAnalysis(body, analysis);
     return NextResponse.json({
       ...toAnalyzeResponse(analysis),
-      cache: { hit: Boolean(cached), reusable: !hasRetryableIssue(analysis) },
+      cache: {
+        hit: Boolean(cached),
+        reusable: !hasRetryableDataIssue(analysis),
+        degraded: hasTransientInterpretationFailure(analysis),
+      },
     }, {
       headers: {
         "Cache-Control": "no-store",
@@ -50,10 +54,20 @@ export async function GET(req: Request) {
       mode: url.searchParams.get("mode") ?? "auto",
       language: url.searchParams.get("language") ?? "en",
       includeTranscript: url.searchParams.get("includeTranscript") !== "false",
+      includeAiInterpretation: url.searchParams.get("includeAiInterpretation") !== "false",
     }),
   }));
 }
 
-function hasRetryableIssue(analysis: { issues?: Array<{ retryable?: boolean }> }) {
+function hasRetryableDataIssue(analysis: {
+  issues?: Array<{ retryable?: boolean }>;
+}) {
   return analysis.issues?.some((issue) => issue.retryable) ?? false;
+}
+
+function hasTransientInterpretationFailure(analysis: {
+  interpretation?: { status: "available" | "unavailable"; reason?: string };
+}) {
+  return analysis.interpretation?.status === "unavailable"
+    && analysis.interpretation.reason !== "AI_INTERPRETATION_DISABLED";
 }

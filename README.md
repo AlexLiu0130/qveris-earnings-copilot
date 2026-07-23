@@ -27,7 +27,8 @@ Required for real QVeris analysis:
 Optional runtime variables:
 
 - `QVERIS_BASE_URL`
-- `OPENAI_API_KEY`
+- `DEEPSEEK_API_KEY` (preferred for the default DeepSeek endpoint)
+- `OPENAI_API_KEY` (compatible fallback)
 - `OPENAI_BASE_URL`
 - `OPENAI_MODEL`
 - `EARNINGS_PROVIDER` (`qveris`, `hybrid`, or `mock`; default is `qveris`)

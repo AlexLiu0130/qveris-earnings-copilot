@@ -7,6 +7,7 @@ import { resolveAnalysis } from "@/lib/earnings/resolveAnalysis";
 import type { Dict } from "@/lib/i18n/dict";
 import { getDict } from "@/lib/i18n/server";
 import { CallIntelligencePanel } from "@/components/earnings/CallIntelligencePanel";
+import { AiInterpretationPanel } from "@/components/earnings/AiInterpretationPanel";
 import { CopyButton } from "@/components/earnings/CopyButton";
 import { EarningsSearchBox } from "@/components/earnings/EarningsSearchBox";
 import { KeyMetricsPanel } from "@/components/earnings/KeyMetricsPanel";
@@ -40,6 +41,7 @@ export default async function TickerResearchPage({
     includeNews: true,
     includeFilings: true,
     includeTranscript: true,
+    includeAiInterpretation: false,
   };
   let analysis;
   try {
@@ -71,6 +73,16 @@ export default async function TickerResearchPage({
           </div>
           <div className="rise rise-3">
             <KeyMetricsPanel analysis={analysis} />
+          </div>
+          <div className="rise rise-4">
+            <AiInterpretationPanel
+              interpretation={analysis.interpretation}
+              sources={analysis.sources}
+              language={analysis.language}
+              ticker={analysis.ticker}
+              analysisId={analysis.analysisId}
+              autoLoad={!analysisId}
+            />
           </div>
           <div className="rise rise-4">
             <MultiQuarterPanel rows={quarterRows} sources={quarterSources} language={analysis.language} />

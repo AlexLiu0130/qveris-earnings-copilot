@@ -1,6 +1,6 @@
 import type { Lang } from "@/lib/i18n/dict";
 import type { SourceRef, TranscriptInsight } from "@/lib/earnings/types";
-import { localEnv } from "@/lib/runtime/env";
+import { aiApiKey, localEnv } from "@/lib/runtime/env";
 
 const SOURCE_TITLES_ZH: Record<string, string> = {
   get_company_profile: "QVeris 公司档案",
@@ -17,10 +17,13 @@ const SOURCE_TITLES_ZH: Record<string, string> = {
   get_sec_filings: "QVeris SEC 公告",
   get_earnings_transcript: "QVeris 财报电话会记录",
   get_earnings_guidance: "QVeris 管理层业绩指引",
+  get_official_quarterly_results: "公司官方季度业绩",
 };
 
 export function localizeGuidanceText(text: string | undefined, lang: Lang, fiscalYear?: number) {
   if (!text || lang === "en") return text;
+  const rangeGuidance = localizeRangeGuidance(text);
+  if (rangeGuidance) return rangeGuidance;
   const quarter = text.match(/(?:fiscal\s+)?(Q[1-4])\b/i)?.[1]?.toUpperCase();
   const fullYear = text.match(/\bfull[- ]year\s+(20\d{2})\b/i)?.[1];
   const revenue = metricMoney(text, /\b(?:revenue|sales)\b/i);
@@ -55,6 +58,25 @@ export function localizeGuidanceText(text: string | undefined, lang: Lang, fisca
   return `${period}指引：${metrics.join("；")}。`;
 }
 
+function localizeRangeGuidance(text: string) {
+  const clauses = text.split(/(?<=\.)\s+/).flatMap((clause) => {
+    const period = clause.match(/\b(Q[1-4])\s+(20\d{2})\b/i);
+    const fullYear = clause.match(/\bfull[- ]year\s+(20\d{2})\b/i);
+    const sales = clause.match(/\b(?:total net sales|revenue|sales)\b[^.]*?between\s*([€$])([\d.]+)\s*billion\s+and\s*[€$]?([\d.]+)\s*billion/i);
+    const margin = clause.match(/\bgross margin\b[^.]*?between\s*([\d.]+)%\s+and\s+([\d.]+)%/i);
+    const operatingMargin = clause.match(/\boperating margin\b[^.]*?between\s*([\d.]+)%\s+and\s+([\d.]+)%/i);
+    if ((!period && !fullYear) || (!sales && !margin && !operatingMargin)) return [];
+    const label = fullYear ? `${fullYear[1]} 全年` : `${period![2]} 财年${period![1].toUpperCase()}`;
+    const metrics = [
+      sales && `营收 ${sales[1]}${sales[2]}B–${sales[1]}${sales[3]}B`,
+      margin && `毛利率 ${margin[1]}%–${margin[2]}%`,
+      operatingMargin && `营业利润率 ${operatingMargin[1]}%–${operatingMargin[2]}%`,
+    ].filter(Boolean);
+    return `${label}指引：${metrics.join("；")}。`;
+  });
+  return clauses.length ? clauses.join("") : undefined;
+}
+
 export function localizeTranscript(transcript: TranscriptInsight | null | undefined, _lang: Lang) {
   return transcript;
 }
@@ -62,15 +84,17 @@ export function localizeTranscript(transcript: TranscriptInsight | null | undefi
 export async function translateTranscript(transcript: TranscriptInsight | null | undefined, lang: Lang) {
   if (lang !== "zh" || !transcript?.available || !transcript.repeatedQuestions?.length) return transcript;
   const env = localEnv();
-  if (!env.OPENAI_API_KEY) return transcript;
+  const apiKey = aiApiKey(env);
+  if (!apiKey) return transcript;
   try {
     const res = await fetch(`${(env.OPENAI_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "")}/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${env.OPENAI_API_KEY}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
       signal: AbortSignal.timeout(20_000),
       body: JSON.stringify({
         model: env.OPENAI_MODEL || "deepseek-v4-flash",
         temperature: 0,
+        thinking: { type: "disabled" },
         response_format: { type: "json_object" },
         messages: [
           { role: "system", content: "Translate the supplied earnings-call questions and answers faithfully into Simplified Chinese. Do not summarize, omit, explain, or add facts. Preserve company names, tickers, abbreviations, numbers, and every id. Return JSON with questions as objects {id,text} and answers as objects {id,topic,answer}." },

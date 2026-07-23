@@ -233,7 +233,8 @@ Required for real QVeris operation:
 Optional:
 
 - `QVERIS_BASE_URL`
-- `OPENAI_API_KEY`
+- `DEEPSEEK_API_KEY` (DeepSeek default, takes precedence)
+- `OPENAI_API_KEY` (compatible fallback)
 - `OPENAI_BASE_URL`
 - `OPENAI_MODEL`
 - `EARNINGS_PROVIDER`

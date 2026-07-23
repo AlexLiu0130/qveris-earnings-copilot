@@ -42,7 +42,7 @@ const INCOME_STATEMENT_TOOL_ID = "financialmodelingprep.stable.incomestatement.r
 const BALANCE_SHEET_TOOL_ID = "financialmodelingprep.stable.balancesheetstatement.retrieve.v1.bce203b1";
 const CASH_FLOW_TOOL_ID = "financialmodelingprep.stable.cashflowstatement.retrieve.v1.dfeb9354";
 const REVENUE_SEGMENT_TOOL_ID = "financialmodelingprep.stable.revenueproductsegmentation.retrieve.v1.8faa287f";
-const RAW_CACHE_NAMESPACE_VERSION = 1;
+const RAW_CACHE_NAMESPACE_VERSION = 2;
 const CORE_ADR_SUBMISSIONS = {
   ASML: { cik: "0000937966" },
   TSM: { cik: "0001046179" },
@@ -53,6 +53,22 @@ const TSM_Q2_2026_IR_EVENT = {
   fiscalPeriod: "Q2",
   fiscalYear: 2026,
   url: "https://investor.tsmc.com/english/quarterly-results/2026/q2",
+} as const;
+const TSM_Q2_2026_IR_RESULTS = {
+  reportDate: "2026-07-16",
+  fiscalPeriod: "Q2",
+  fiscalYear: 2026,
+  revenueGuidanceMidpointTwd: 1_255_320_000_000,
+  guidanceText: "Q3 2026 net revenue is expected between $44.6 billion and $45.8 billion, with gross margin between 65% and 67% and operating margin between 56% and 58%.",
+  url: "https://investor.tsmc.com/english/quarterly-results/2026/q2",
+} as const;
+const ASML_Q2_2026_IR_RESULTS = {
+  reportDate: "2026-07-15",
+  fiscalPeriod: "Q2",
+  fiscalYear: 2026,
+  epsActual: 7.59,
+  guidanceText: "Q3 2026 total net sales are expected between €11.0 billion and €12.0 billion, with gross margin between 55% and 57%. Full-year 2026 total net sales are expected between €43 billion and €45 billion, with gross margin between 54% and 56%.",
+  url: "https://www.asml.com/en/news/press-releases/2026/q2-2026-financial-results",
 } as const;
 const MAX_FULL_CONTENT_BYTES = 2 * 1024 * 1024;
 const TRUSTED_FULL_CONTENT_HOSTS = new Set([
@@ -159,16 +175,32 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
     const data = parsePossiblyTruncated(call.data);
     const estimates = Array.isArray(asRecord(data)?.estimates) ? asRecord(data)!.estimates as Record<string, unknown>[] : [];
     const selected = selectEstimate(estimates, event);
-    if (!selected) return null;
-    const sourceId = this.recordSource(ticker, "get_earnings_estimates", "QVeris consensus estimates", ESTIMATES_TOOL_ID, call.executionId);
+    const officialTsm = typeof event === "object" ? tsmOfficialResults(ticker, event) : null;
+    if (!selected && !officialTsm) return null;
+    const sourceId = selected
+      ? this.recordSource(ticker, "get_earnings_estimates", "QVeris consensus estimates", ESTIMATES_TOOL_ID, call.executionId)
+      : undefined;
+    const officialSourceId = officialTsm
+      ? this.recordSource(ticker, "get_official_quarterly_results", "TSMC official quarterly results", "tsmc.investor-relations.quarterly-results", undefined, { provider: "TSMC Investor Relations", url: officialTsm.url })
+      : undefined;
+    const providerRevenue = numberValue(selected?.revenue_estimate_average);
+    const revenueEstimate = providerRevenue ?? officialTsm?.revenueGuidanceMidpointTwd;
+    const epsEstimate = numberValue(selected?.eps_estimate_average);
     const eventId = typeof event === "string" ? event : event?.id;
     return {
       ticker: ticker.toUpperCase(),
       eventId,
-      revenueEstimate: numberValue(selected.revenue_estimate_average),
-      epsEstimate: numberValue(selected.eps_estimate_average),
-      estimateCount: numberValue(selected.eps_estimate_analyst_count) ?? numberValue(selected.revenue_estimate_analyst_count),
-      sourceIds: [sourceId],
+      revenueEstimate,
+      epsEstimate,
+      epsCurrency: officialTsm ? "USD" : undefined,
+      revenueEstimateBasis: providerRevenue != null ? "consensus" : "company_guidance_midpoint",
+      estimateCount: numberValue(selected?.eps_estimate_analyst_count) ?? numberValue(selected?.revenue_estimate_analyst_count),
+      sourceIds: [...new Set([sourceId, officialSourceId].filter(Boolean) as string[])],
+      fieldSourceIds: {
+        revenueEstimate: providerRevenue != null && sourceId ? [sourceId] : officialSourceId ? [officialSourceId] : undefined,
+        epsEstimate: epsEstimate != null && sourceId ? [sourceId] : undefined,
+        estimateCount: sourceId ? [sourceId] : undefined,
+      },
     };
   }
 
@@ -183,19 +215,30 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
     const latestFinancials = selectFiscalPeriod(financials, event);
     const latestSegments = selectFiscalPeriod(segments, event);
     const transcriptGuidance = extractGuidanceText(transcript.entries);
-    const guidanceText = transcriptGuidance;
-    const calendarSourceIds = event?.sourceIds ?? [];
-    const revenueSourceIds = event?.revenueActual != null ? calendarSourceIds : latestFinancials?.fieldSourceIds?.revenue ?? latestFinancials?.sourceIds;
-    const epsSourceIds = event?.epsActual != null ? calendarSourceIds : latest?.sourceIds;
-    const guidanceSourceIds = transcriptGuidance
-      ? [this.recordSource(ticker, "get_earnings_guidance", "QVeris prepared earnings guidance", TRANSCRIPT_TOOL_ID, transcript.executionId)]
+    const officialAsml = asmlOfficialResults(ticker, event);
+    const officialTsm = tsmOfficialResults(ticker, event);
+    const officialResult = officialAsml ?? officialTsm;
+    const officialSourceId = officialResult
+      ? this.recordSource(ticker, "get_official_quarterly_results", `${ticker.toUpperCase()} official quarterly results`, `${ticker.toLowerCase()}.investor-relations.quarterly-results`, undefined, { provider: `${ticker.toUpperCase()} Investor Relations`, url: officialResult.url })
       : undefined;
+    const guidanceText = officialResult?.guidanceText ?? transcriptGuidance;
+    const calendarSourceIds = event?.sourceIds ?? [];
+    const revenueSourceIds = latestFinancials?.revenue != null
+      ? latestFinancials.fieldSourceIds?.revenue ?? latestFinancials.sourceIds
+      : calendarSourceIds;
+    const epsSourceIds = officialAsml && officialSourceId ? [officialSourceId] : event?.epsActual != null ? calendarSourceIds : latest?.sourceIds;
+    const guidanceSourceIds = officialSourceId
+      ? [officialSourceId]
+      : transcriptGuidance
+        ? [this.recordSource(ticker, "get_earnings_guidance", "QVeris prepared earnings guidance", TRANSCRIPT_TOOL_ID, transcript.executionId)]
+        : undefined;
     if (event?.revenueActual == null && event?.epsActual == null && !latest && !latestFinancials) return null;
     return {
       ticker: ticker.toUpperCase(),
       eventId: event?.id,
-      revenueActual: event?.revenueActual ?? latestFinancials?.revenue,
-      epsActual: event?.epsActual ?? latest?.epsActual,
+      revenueActual: latestFinancials?.revenue ?? event?.revenueActual,
+      epsActual: officialAsml?.epsActual ?? event?.epsActual ?? latest?.epsActual,
+      epsCurrency: officialTsm ? "USD" : undefined,
       grossMargin: latestFinancials?.grossMargin,
       operatingMargin: latestFinancials?.operatingMargin,
       netIncome: latestFinancials?.netIncome,
@@ -677,6 +720,24 @@ function coreAdrSymbolsForCalendar(allowedSymbols: string[] | null): Array<keyof
   return (Object.keys(CORE_ADR_SUBMISSIONS) as Array<keyof typeof CORE_ADR_SUBMISSIONS>).filter((symbol) => allowed.has(symbol));
 }
 
+function asmlOfficialResults(ticker: string, event?: EarningsEvent | null) {
+  return ticker.toUpperCase() === "ASML"
+    && event?.reportDate === ASML_Q2_2026_IR_RESULTS.reportDate
+    && event.fiscalPeriod === ASML_Q2_2026_IR_RESULTS.fiscalPeriod
+    && event.fiscalYear === ASML_Q2_2026_IR_RESULTS.fiscalYear
+    ? ASML_Q2_2026_IR_RESULTS
+    : null;
+}
+
+function tsmOfficialResults(ticker: string, event?: EarningsEvent | null) {
+  return ticker.toUpperCase() === "TSM"
+    && event?.reportDate === TSM_Q2_2026_IR_RESULTS.reportDate
+    && event.fiscalPeriod === TSM_Q2_2026_IR_RESULTS.fiscalPeriod
+    && event.fiscalYear === TSM_Q2_2026_IR_RESULTS.fiscalYear
+    ? TSM_Q2_2026_IR_RESULTS
+    : null;
+}
+
 function mergeCalendarEvents(primary: EarningsEvent[], supplements: EarningsEvent[]) {
   const seen = new Set(primary.map((event) => `${event.ticker}-${event.reportDate}`));
   return [
@@ -747,6 +808,7 @@ function stringValue(value: unknown): string | undefined {
 }
 
 function numberValue(value: unknown): number | undefined {
+  if (value == null || value === "" || typeof value === "boolean") return undefined;
   const n = Number(value);
   return Number.isFinite(n) ? n : undefined;
 }
@@ -927,18 +989,35 @@ function fiscalQuarter(value?: string) {
 }
 
 export function extractGuidanceText(entries: Record<string, unknown>[]) {
-  const guidance: string[] = [];
+  const guidance: Array<{ sentence: string; score: number; order: number }> = [];
+  let order = 0;
   for (const entry of entries) {
     const content = stringValue(entry.content);
     if (!content || transcriptRole(entry) === "analyst") continue;
     for (const sentence of content.replace(/\s+/g, " ").trim().split(/(?<=[.!?])\s+/)) {
       if (!isGuidanceSentence(sentence)) continue;
-      guidance.push(sentence);
-      // ponytail: two cited sentences keep the result concise; add structured guidance fields if more detail is needed.
-      if (guidance.length === 2) return guidance.join(" ").slice(0, 1200);
+      guidance.push({ sentence, score: guidanceSentenceScore(sentence), order: order++ });
     }
   }
-  return guidance.length ? guidance.join(" ").slice(0, 1200) : undefined;
+  if (!guidance.length) return undefined;
+  return guidance
+    .sort((a, b) => b.score - a.score || a.order - b.order)
+    .slice(0, 2)
+    .sort((a, b) => a.order - b.order)
+    .map((item) => item.sentence)
+    .join(" ")
+    .slice(0, 1200);
+}
+
+function guidanceSentenceScore(value: string) {
+  let score = 0;
+  if (/\b(?:fiscal\s+)?Q[1-4]\b|\bnext quarter\b/i.test(value)) score += 80;
+  if (/\bturning to (?:our )?guidance\b/i.test(value)) score += 60;
+  if (/[$€£]\s*[\d,.]+|\d+(?:\.\d+)?%/i.test(value)) score += 40;
+  if (/\b(?:EPS|earnings per share|gross margin|operating margin)\b/i.test(value)) score += 30;
+  if (/\b(?:plus or minus|between|range of)\b/i.test(value)) score += 25;
+  if (/\b(?:SCA|strategic customer agreement|RPO|remaining performance obligation|when (?:all )?(?:planned|completed)|over the term)\b/i.test(value)) score -= 120;
+  return score;
 }
 
 function isGuidanceSentence(value: string) {

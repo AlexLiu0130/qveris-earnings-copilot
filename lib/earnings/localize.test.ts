@@ -22,6 +22,20 @@ test("guidance localization keeps revenue-growth, NII, and expense-outlook value
   );
 });
 
+test("multi-period euro guidance keeps each range and period", () => {
+  assert.equal(
+    localizeGuidanceText("Q3 2026 total net sales are expected between €11.0 billion and €12.0 billion, with gross margin between 55% and 57%. Full-year 2026 total net sales are expected between €43 billion and €45 billion, with gross margin between 54% and 56%.", "zh", 2026),
+    "2026 财年Q3指引：营收 €11.0B–€12.0B；毛利率 55%–57%。2026 全年指引：营收 €43B–€45B；毛利率 54%–56%。",
+  );
+});
+
+test("range guidance keeps operating margin", () => {
+  assert.equal(
+    localizeGuidanceText("Q3 2026 net revenue is expected between $44.6 billion and $45.8 billion, with gross margin between 65% and 67% and operating margin between 56% and 58%.", "zh", 2026),
+    "2026 财年Q3指引：营收 $44.6B–$45.8B；毛利率 65%–67%；营业利润率 56%–58%。",
+  );
+});
+
 test("unstructured guidance keeps its original sentence instead of a generic placeholder", () => {
   assert.equal(
     localizeGuidanceText("Management expects market conditions to remain supportive.", "zh", 2026),

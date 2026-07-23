@@ -128,6 +128,67 @@ test("same-event earnings history supplies a missing EPS estimate", () => {
   assert.deepEqual(estimates?.fieldSourceIds?.epsEstimate, ["history"]);
 });
 
+test("same fiscal quarter history wins when the calendar mixes estimate bases", () => {
+  const event = {
+    id: "GOOGL-2026-07-22",
+    ticker: "GOOGL",
+    fiscalPeriod: "Q2",
+    fiscalYear: 2026,
+    reportDate: "2026-07-22",
+    timing: "after_close" as const,
+    status: "reported" as const,
+    revenueEstimate: 120_361_387_510,
+    epsEstimate: 2.9753,
+    sourceIds: ["calendar"],
+  };
+  const estimates = resolveEventEstimates(event, null, [{
+    eventId: "GOOGL-earnings-2026-06-30",
+    fiscalPeriod: "2026-06-30",
+    reportDate: "2026-07-21",
+    revenueEstimate: 116_907_225_680,
+    epsEstimate: 2.87,
+    sourceIds: ["same-quarter-consensus"],
+  }]);
+
+  assert.equal(estimates?.revenueEstimate, 116_907_225_680);
+  assert.equal(estimates?.epsEstimate, 2.87);
+  assert.deepEqual(estimates?.fieldSourceIds?.revenueEstimate, ["same-quarter-consensus"]);
+  assert.deepEqual(estimates?.fieldSourceIds?.epsEstimate, ["same-quarter-consensus"]);
+});
+
+test("same-event history fills only fields missing from a partial estimate payload", () => {
+  const event = {
+    id: "TSM-2026-07-16",
+    ticker: "TSM",
+    fiscalPeriod: "Q2",
+    fiscalYear: 2026,
+    reportDate: "2026-07-16",
+    timing: "unknown" as const,
+    status: "reported" as const,
+    sourceIds: ["calendar"],
+  };
+  const estimates = resolveEventEstimates(event, {
+    ticker: "TSM",
+    revenueEstimate: 1_255_320_000_000,
+    revenueEstimateBasis: "company_guidance_midpoint",
+    sourceIds: ["official-guidance"],
+    fieldSourceIds: { revenueEstimate: ["official-guidance"] },
+  }, [{
+    eventId: "TSM-earnings-2026-06-30",
+    fiscalPeriod: "2026-06-30",
+    reportDate: "2026-07-16",
+    epsActual: 4.31,
+    epsEstimate: 3.87,
+    sourceIds: ["history"],
+  }]);
+
+  assert.equal(estimates?.revenueEstimate, 1_255_320_000_000);
+  assert.equal(estimates?.epsEstimate, 3.87);
+  assert.deepEqual(estimates?.fieldSourceIds?.revenueEstimate, ["official-guidance"]);
+  assert.deepEqual(estimates?.fieldSourceIds?.epsEstimate, ["history"]);
+  assert.deepEqual(estimates?.sourceIds, ["official-guidance", "history"]);
+});
+
 test("small estimate rounding differences are not reported as conflicts", () => {
   const event = {
     id: "NVDA-2026-08-26",

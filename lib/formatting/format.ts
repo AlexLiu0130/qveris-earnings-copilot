@@ -5,13 +5,14 @@ export function fmtMoney(value: number | null | undefined, currency = "USD"): st
   const abs = Math.abs(value);
   const [scaled, suffix] =
     abs >= 1e12 ? [value / 1e12, "T"] : abs >= 1e9 ? [value / 1e9, "B"] : abs >= 1e6 ? [value / 1e6, "M"] : [value, ""];
-  const symbol = currency === "USD" ? "$" : `${currency} `;
+  const symbol = ({ USD: "$", EUR: "€", GBP: "£", JPY: "¥" } as Record<string, string>)[currency] ?? `${currency} `;
   return `${symbol}${scaled.toLocaleString("en-US", { maximumFractionDigits: 2 })}${suffix}`;
 }
 
-export function fmtEps(value: number | null | undefined): string {
+export function fmtEps(value: number | null | undefined, currency = "USD"): string {
   if (value == null) return UNAVAILABLE;
-  return `$${value.toFixed(2)}`;
+  const symbol = ({ USD: "$", EUR: "€", GBP: "£", JPY: "¥" } as Record<string, string>)[currency] ?? `${currency} `;
+  return `${symbol}${value.toFixed(2)}`;
 }
 
 export function fmtPct(value: number | null | undefined, signed = true): string {

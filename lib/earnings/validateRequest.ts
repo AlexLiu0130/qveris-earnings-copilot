@@ -19,6 +19,7 @@ export function validateAnalyzeRequest(input: unknown): AnalyzeEarningsRequest {
     includeFilings: raw.includeFilings !== false,
     includeTranscript: raw.includeTranscript !== false,
     includeAiSummary: raw.includeAiSummary !== false,
+    includeAiInterpretation: raw.includeAiInterpretation !== false,
     maxNewsItems: clampNumber(raw.maxNewsItems, 5, 0, 20),
   };
 }

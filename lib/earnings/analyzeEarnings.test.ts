@@ -121,10 +121,15 @@ test("Chinese analysis keeps transcript originals and attaches index-matched tra
   try {
     process.env.OPENAI_API_KEY = "test-key";
     process.env.OPENAI_BASE_URL = "https://ai.test";
+    let calls = 0;
     globalThis.fetch = async () => new Response(JSON.stringify({
       choices: [{
         message: {
-          content: JSON.stringify({
+          content: JSON.stringify(calls++ === 0 ? {
+            mode: "ecosystem",
+            conclusion: { text: "AI 资本开支支持基础设施扩张。", evidenceType: "fact", sourceIds: ["NVDA-demo-transcript"], confidence: "high" },
+            transmissionChain: [{ from: "资本开支与部署", to: "基础设施容量", relation: "资本开支支持扩张", lag: "未来季度", text: "资本开支可能传导至基础设施需求。", evidenceType: "inference", sourceIds: ["NVDA-demo-transcript"], confidence: "medium" }],
+          } : {
             questions: [
               { id: 0, text: "AI 资本开支能持续多久？" },
               { id: 1, text: "利润率趋势如何？" },
@@ -147,6 +152,9 @@ test("Chinese analysis keeps transcript originals and attaches index-matched tra
     assert.equal(analysis.transcript?.repeatedQuestions?.[0], "AI capex durability");
     assert.equal(analysis.transcript?.questionTranslations?.[0], "AI 资本开支能持续多久？");
     assert.equal(analysis.transcript?.managementAnswers?.[0].answerTranslation, "管理层表示资本开支与客户需求能见度和供应可用性相关。");
+    assert.equal(analysis.interpretation?.status, "available");
+    assert.equal(analysis.interpretation?.mode, "ecosystem");
+    assert.equal(calls, 2);
   } finally {
     if (oldApiKey === undefined) delete process.env.OPENAI_API_KEY;
     else process.env.OPENAI_API_KEY = oldApiKey;

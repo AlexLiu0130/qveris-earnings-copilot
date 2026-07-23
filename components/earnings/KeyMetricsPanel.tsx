@@ -16,6 +16,8 @@ function surprisePct(actual?: number, estimate?: number): string {
 export async function KeyMetricsPanel({ analysis }: { analysis: EarningsAnalysis }) {
   const { lang, t } = await getDict();
   const { results, estimates, beatMiss, marketReaction, sources } = analysis;
+  const currency = analysis.company?.currency ?? "USD";
+  const epsCurrency = results?.epsCurrency ?? estimates?.epsCurrency ?? currency;
   const latestFinancials = selectFiscalPeriod(analysis.financials, analysis.event);
   const revenueActual = results?.revenueActual ?? latestFinancials?.revenue;
   const grossMarginRatio = results?.grossMargin ?? latestFinancials?.grossMargin;
@@ -52,12 +54,17 @@ export async function KeyMetricsPanel({ analysis }: { analysis: EarningsAnalysis
           <tr>
             <td className="text-ink-soft">{t.flash.revenue}</td>
             <td className="text-ink">
-              {u(fmtMoney(revenueActual), un)}
+              {u(fmtMoney(revenueActual, currency), un)}
               {revenueIds && <Cite ids={revenueIds} sources={sources} />}
             </td>
             <td className="text-ink-soft">
-              {u(fmtMoney(estimates?.revenueEstimate), un)}
+              {u(fmtMoney(estimates?.revenueEstimate, currency), un)}
               {revenueEstimateIds && <Cite ids={revenueEstimateIds} sources={sources} />}
+              {estimates?.revenueEstimateBasis === "company_guidance_midpoint" && (
+                <span className="ml-2 text-[10px] text-ink-faint">
+                  {lang === "zh" ? "公司指引中值" : "company guidance midpoint"}
+                </span>
+              )}
             </td>
             <td className="text-ink-soft">{u(surprisePct(revenueActual, estimates?.revenueEstimate), un)}</td>
             <td>{beatMiss && <BeatMissTag value={beatMiss.revenue} />}</td>
@@ -65,11 +72,11 @@ export async function KeyMetricsPanel({ analysis }: { analysis: EarningsAnalysis
           <tr>
             <td className="text-ink-soft">{t.flash.eps}</td>
             <td className="text-ink">
-              {u(fmtEps(results?.epsActual), un)}
+              {u(fmtEps(results?.epsActual, epsCurrency), un)}
               {epsIds && <Cite ids={epsIds} sources={sources} />}
             </td>
             <td className="text-ink-soft">
-              {u(fmtEps(estimates?.epsEstimate), un)}
+              {u(fmtEps(estimates?.epsEstimate, epsCurrency), un)}
               {epsEstimateIds && <Cite ids={epsEstimateIds} sources={sources} />}
             </td>
             <td className="text-ink-soft">{u(surprisePct(results?.epsActual, estimates?.epsEstimate), un)}</td>
@@ -103,7 +110,7 @@ export async function KeyMetricsPanel({ analysis }: { analysis: EarningsAnalysis
           sources={sources}
           un={un}
         />
-        <Stat label={t.flash.netIncome} value={fmtMoney(netIncome)} ids={netIncomeIds} sources={sources} un={un} />
+        <Stat label={t.flash.netIncome} value={fmtMoney(netIncome, currency)} ids={netIncomeIds} sources={sources} un={un} />
         <Stat label={t.preview.analystCount} value={fmtNumber(estimates?.estimateCount)} ids={estimateCountIds} sources={sources} un={un} />
       </dl>
 
