@@ -1,4 +1,4 @@
-import { aiApiKey, localEnv } from "@/lib/runtime/env";
+import { aiRuntimeConfig, localEnv } from "@/lib/runtime/env";
 import type { ClaimSourceIds, EarningsAnalysis } from "@/lib/earnings/types";
 
 interface AiSummary {
@@ -35,18 +35,16 @@ export async function generateAiSummary(input: Pick<
   | "sources"
 >) {
   const env = localEnv();
-  const apiKey = aiApiKey(env);
-  if (!apiKey) return null;
-  const baseUrl = (env.OPENAI_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "");
-  const model = env.OPENAI_MODEL || "deepseek-v4-flash";
+  const ai = aiRuntimeConfig(env);
+  if (!ai) return null;
 
   try {
-    const res = await fetch(`${baseUrl}/chat/completions`, {
+    const res = await fetch(`${ai.baseUrl}/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ai.apiKey}` },
       signal: AbortSignal.timeout(20_000),
       body: JSON.stringify({
-        model,
+        model: ai.model,
         temperature: 0.2,
         thinking: { type: "disabled" },
         response_format: { type: "json_object" },

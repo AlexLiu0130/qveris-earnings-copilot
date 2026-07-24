@@ -88,7 +88,9 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   });
   const dataUnavailable = calendar.issues.length ? dataIssueText() : null;
 
-  const companies = await getCompanyProfiles(calendar.events.map((event) => event.ticker));
+  const companies = view === "table"
+    ? await getCompanyProfiles(calendar.events.map((event) => event.ticker))
+    : new Map<string, CompanyProfile>();
   const estimates = view === "table" ? await getEstimatesByEvent(calendar.events) : new Map<string, EarningsEstimates>();
   const byDay = new Map<string, EarningsEvent[]>();
   for (const event of calendar.events) {
@@ -260,7 +262,7 @@ function MonthGrid({
         {cells.map((cell, i) => (
           <div
             key={i}
-            className={`min-h-24 border-b border-r border-line p-1.5 [&:nth-child(7n)]:border-r-0 ${
+            className={`min-h-36 border-b border-r border-line p-1.5 [&:nth-child(7n)]:border-r-0 ${
               cell ? "" : "bg-surface-2/50"
             }`}
           >
@@ -273,7 +275,7 @@ function MonthGrid({
                 >
                   {cell.day}
                 </span>
-                <div className="mt-1 space-y-1">
+                <div className="mt-1 max-h-32 space-y-1 overflow-y-auto pr-0.5">
                   {(byDay.get(cell.date) ?? []).map((event) => {
                     const reported = event.status === "reported";
                     const company = companies.get(event.ticker);

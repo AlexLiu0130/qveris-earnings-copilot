@@ -128,6 +128,7 @@ export async function qverisFetchCacheKey(toolId: string, parameters: Record<str
 export function qverisFetchTtlMs(toolId: string) {
   const id = toolId.toLowerCase();
   if (id.includes("quote")) return 60_000;
+  if (id.includes("indexconstituent")) return 24 * 60 * 60_000;
   if (id.includes("calendar") || id.includes("estimates")) return 30 * 60_000;
   if (id.includes("news")) return 15 * 60_000;
   if (id.includes("filing")) return 60 * 60_000;

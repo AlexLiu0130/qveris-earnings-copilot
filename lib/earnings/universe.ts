@@ -103,6 +103,7 @@ const HOT_SMALL_AND_MID_CAPS = [
 ] as const;
 
 const CORE_UNIVERSE = [...SP500_AND_NASDAQ_LEADERS, ...HOT_SMALL_AND_MID_CAPS] as const;
+const RECENT_HISTORY_SUPPLEMENTS = ["GOOGL", "GOOG", "NFLX", "TSLA", "JPM", "INTC", "IBM"] as const;
 
 export function calendarSymbolsForUniverse(universe?: string): string[] | null {
   const normalized = normalizeUniverse(universe);
@@ -116,6 +117,11 @@ export function calendarSymbolsForUniverse(universe?: string): string[] | null {
 export function isCoreCalendarUniverse(universe?: string) {
   const normalized = normalizeUniverse(universe);
   return !normalized || normalized === "core" || normalized === "popular" || normalized === "sp500" || normalized === "nasdaq" || normalized === "hot_small_caps" || normalized === "small_caps";
+}
+
+export function recentHistorySymbolsForUniverse(universe?: string) {
+  const allowed = calendarSymbolsForUniverse(universe);
+  return RECENT_HISTORY_SUPPLEMENTS.filter((symbol) => !allowed || allowed.includes(symbol));
 }
 
 function normalizeUniverse(universe?: string) {

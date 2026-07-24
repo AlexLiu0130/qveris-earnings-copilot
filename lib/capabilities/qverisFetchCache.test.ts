@@ -53,6 +53,7 @@ test("expired entries miss", async (t) => {
 
 test("tool TTLs match capability freshness", () => {
   assert.equal(qverisFetchTtlMs("eodhd.live_v2.us_quote_delayed.retrieve.v1.f0e13d45"), 60_000);
+  assert.equal(qverisFetchTtlMs("mcp_gildata.indexconstituentstocks.v1"), 24 * 60 * 60_000);
   assert.equal(qverisFetchTtlMs("finnhub.calendar.earnings.retrieve.v1.1552775d"), 30 * 60_000);
   assert.equal(qverisFetchTtlMs("alphavantage.earnings_estimates.retrieve.v1.7aca3c4a"), 30 * 60_000);
   assert.equal(qverisFetchTtlMs("qveris_finance.finance_news_aggregation_v1"), 15 * 60_000);
