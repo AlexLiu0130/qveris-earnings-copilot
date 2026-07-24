@@ -31,6 +31,7 @@ const CALENDAR_TOOL_ID = "alphavantage.earnings_calendar.list.v1.467a92c0";
 const INDEX_CONSTITUENTS_TOOL_ID = "mcp_gildata.indexconstituentstocks.v1";
 const SEC_COMPANY_SUBMISSIONS_TOOL_ID = "sec.company.submissions.v1";
 const PROFILE_TOOL_ID = "finnhub.company.profile.v2.get.v1";
+const MARKET_CAP_BATCH_TOOL_ID = "financialmodelingprep.stable.marketcapitalizationbatch.retrieve.v1.d2caebb9";
 const EARNINGS_HISTORY_TOOL_ID = "alphavantage.earnings.retrieve.v1.467a92c0";
 const ESTIMATES_TOOL_ID = "alphavantage.earnings_estimates.retrieve.v1.467a92c0";
 const QUOTE_TOOL_ID = "eodhd.live_v2.us_quote_delayed.retrieve.v1.f0e13d45";
@@ -126,6 +127,17 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
       currency: stringValue(data.currency),
       sourceIds: [sourceId],
     };
+  }
+
+  async getMarketCaps(tickers: string[]) {
+    const unique = [...new Set(tickers.map((ticker) => ticker.toUpperCase()).filter(Boolean))].sort();
+    const chunks = Array.from({ length: Math.ceil(unique.length / 50) }, (_, index) => unique.slice(index * 50, (index + 1) * 50));
+    const calls = await Promise.allSettled(chunks.map((symbols) => this.execute(MARKET_CAP_BATCH_TOOL_ID, { symbols: symbols.join(",") })));
+    return new Map(calls.flatMap((call) => call.status === "fulfilled" ? arrayRecords(call.value.data).flatMap((row) => {
+      const symbol = stringValue(row.symbol)?.toUpperCase();
+      const marketCap = numberValue(row.marketCap);
+      return symbol && marketCap != null ? [[symbol, marketCap] as const] : [];
+    }) : []));
   }
 
   async getEarningsCalendar(params: EarningsCalendarParams): Promise<EarningsEvent[]> {

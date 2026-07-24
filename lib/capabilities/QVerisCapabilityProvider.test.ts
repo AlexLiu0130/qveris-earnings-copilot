@@ -59,6 +59,44 @@ function emptyProviderResponse() {
   return jsonResponse({ success: false, result: { status_code: 200, data: {} } });
 }
 
+test("market cap ranking uses one normalized batch request", async (t) => {
+  const calls = stubFetch(t, () => jsonResponse({
+    success: true,
+    result: {
+      data: [
+        { symbol: "AAPL", marketCap: 4_700_000_000_000 },
+        { symbol: "LMT", marketCap: 131_000_000_000 },
+      ],
+    },
+  }));
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
+
+  const marketCaps = await provider.getMarketCaps(["LMT", "AAPL", "AAPL"]);
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body?.tool_id, "financialmodelingprep.stable.marketcapitalizationbatch.retrieve.v1.d2caebb9");
+  assert.deepEqual(calls[0].body?.parameters, { symbols: "AAPL,LMT" });
+  assert.equal(marketCaps.get("AAPL"), 4_700_000_000_000);
+  assert.equal(marketCaps.get("LMT"), 131_000_000_000);
+});
+
+test("market cap ranking keeps successful chunks when one provider chunk is empty", async (t) => {
+  const calls = stubFetch(t, (_url, init) => {
+    const body = JSON.parse(String(init?.body)) as { parameters: { symbols: string } };
+    return body.parameters.symbols === "ZZZ"
+      ? emptyProviderResponse()
+      : jsonResponse({ success: true, result: { data: [{ symbol: "A00", marketCap: 10 }] } });
+  });
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
+  const tickers = [...Array.from({ length: 50 }, (_, index) => `A${String(index).padStart(2, "0")}`), "ZZZ"];
+
+  const marketCaps = await provider.getMarketCaps(tickers);
+
+  assert.equal(marketCaps.get("A00"), 10);
+  assert.equal(marketCaps.has("ZZZ"), false);
+  assert.equal(calls.length, 3);
+});
+
 test("calendar uses current QVeris tool and maps earningsCalendar rows", async (t) => {
   const calls = stubFetch(t, () => jsonResponse({
     success: true,

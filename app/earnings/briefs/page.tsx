@@ -1,6 +1,8 @@
 import { EarningsEventCard } from "@/components/earnings/EarningsEventCard";
+import { getCompanyMarketCaps } from "@/lib/earnings/companies";
 import { getEarningsCalendar } from "@/lib/earnings/calendar";
 import { addDaysIso, todayIso } from "@/lib/earnings/date";
+import { compareMarketCapDesc } from "@/lib/earnings/eventPriority";
 import type { EarningsEvent } from "@/lib/earnings/types";
 import { getDict } from "@/lib/i18n/server";
 
@@ -11,13 +13,14 @@ export default async function BriefsPage() {
   const today = todayIso();
   const calendar = await getEarningsCalendar({ from: addDaysIso(today, -30), to: addDaysIso(today, 45) });
   const dataUnavailable = calendar.issues.length ? dataIssueText() : null;
+  const marketCaps = await getCompanyMarketCaps(calendar.events.map((event) => event.ticker));
   const flashes = calendar.events
     .filter((event) => event.status === "reported")
-    .sort((a, b) => b.reportDate.localeCompare(a.reportDate))
+    .sort((a, b) => compareMarketCapDesc(a, b, marketCaps) || b.reportDate.localeCompare(a.reportDate) || a.ticker.localeCompare(b.ticker))
     .slice(0, 6);
   const previews = calendar.events
     .filter((event) => event.status === "upcoming")
-    .sort((a, b) => a.reportDate.localeCompare(b.reportDate))
+    .sort((a, b) => compareMarketCapDesc(a, b, marketCaps) || a.reportDate.localeCompare(b.reportDate) || a.ticker.localeCompare(b.ticker))
     .slice(0, 6);
 
   return (

@@ -1,9 +1,10 @@
 import Link from "next/link";
 import { getEarningsProvider } from "@/lib/capabilities/provider";
-import { getCompanyProfiles } from "@/lib/earnings/companies";
+import { getCompanyMarketCaps, getCompanyProfiles } from "@/lib/earnings/companies";
 import { getEarningsCalendar } from "@/lib/earnings/calendar";
 import { resolveEventEstimates } from "@/lib/earnings/dataQuality";
 import { todayIso } from "@/lib/earnings/date";
+import { compareMarketCapDesc } from "@/lib/earnings/eventPriority";
 import type { CompanyProfile, EarningsEstimates, EarningsEvent, EarningsTiming } from "@/lib/earnings/types";
 import { fmtDate, fmtEps, fmtMoney } from "@/lib/formatting/format";
 import { u, type Dict, type Lang } from "@/lib/i18n/dict";
@@ -88,12 +89,18 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
   });
   const dataUnavailable = calendar.issues.length ? dataIssueText() : null;
 
+  const marketCaps = await getCompanyMarketCaps(calendar.events.map((event) => event.ticker));
   const companies = view === "table"
     ? await getCompanyProfiles(calendar.events.map((event) => event.ticker))
     : new Map<string, CompanyProfile>();
-  const estimates = view === "table" ? await getEstimatesByEvent(calendar.events) : new Map<string, EarningsEstimates>();
+  const sortedEvents = [...calendar.events].sort((a, b) => (
+    a.reportDate.localeCompare(b.reportDate)
+    || compareMarketCapDesc(a, b, marketCaps)
+    || a.ticker.localeCompare(b.ticker)
+  ));
+  const estimates = view === "table" ? await getEstimatesByEvent(sortedEvents) : new Map<string, EarningsEstimates>();
   const byDay = new Map<string, EarningsEvent[]>();
-  for (const event of calendar.events) {
+  for (const event of sortedEvents) {
     const list = byDay.get(event.reportDate) ?? [];
     list.push(event);
     byDay.set(event.reportDate, list);
@@ -209,7 +216,7 @@ export default async function CalendarPage({ searchParams }: { searchParams: Pro
             t={t}
           />
         ) : (
-          <EventsTable events={calendar.events} companies={companies} estimates={estimates} t={t} lang={lang} />
+          <EventsTable events={sortedEvents} companies={companies} estimates={estimates} t={t} lang={lang} />
         )}
         {calendar.events.length === 0 && (
           <p className="mt-3 text-center text-sm text-ink-faint">{dataUnavailable ?? t.calendarPage.emptyMonth}</p>

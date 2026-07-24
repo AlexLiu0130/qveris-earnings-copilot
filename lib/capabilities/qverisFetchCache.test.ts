@@ -59,6 +59,7 @@ test("tool TTLs match capability freshness", () => {
   assert.equal(qverisFetchTtlMs("qveris_finance.finance_news_aggregation_v1"), 15 * 60_000);
   assert.equal(qverisFetchTtlMs("financialmodelingprep.stable.secfilingssearch.cik.retrieve.v1.6c73a2ce"), 60 * 60_000);
   assert.equal(qverisFetchTtlMs("finnhub.company.profile.v2.get.v1"), 7 * 24 * 60 * 60_000);
+  assert.equal(qverisFetchTtlMs("financialmodelingprep.stable.marketcapitalizationbatch.retrieve.v1.d2caebb9"), 6 * 60 * 60_000);
   assert.equal(qverisFetchTtlMs("alphavantage.earnings.retrieve.v1.7aca3c4a"), 24 * 60 * 60_000);
   assert.equal(qverisFetchTtlMs("financialmodelingprep.stable.incomestatement.retrieve.v1.dd6d583f"), 24 * 60 * 60_000);
   assert.equal(qverisFetchTtlMs("financialmodelingprep.stable.revenueproductsegmentation.retrieve.v1.8faa287f"), 24 * 60 * 60_000);

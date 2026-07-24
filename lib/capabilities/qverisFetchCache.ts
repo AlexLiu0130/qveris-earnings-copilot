@@ -133,6 +133,7 @@ export function qverisFetchTtlMs(toolId: string) {
   if (id.includes("news")) return 15 * 60_000;
   if (id.includes("filing")) return 60 * 60_000;
   if (id.includes("profile")) return 7 * 24 * 60 * 60_000;
+  if (id.includes("marketcapitalizationbatch")) return 6 * 60 * 60_000;
   if (id.includes("transcript")) return 30 * 24 * 60 * 60_000;
   if (
     id.includes("earnings.retrieve")

@@ -23,6 +23,7 @@ import type {
 export interface EarningsCapabilityProvider {
   getSourceRefs?(): SourceRef[];
   getCompanyProfile(ticker: string): Promise<CompanyProfile | null>;
+  getMarketCaps?(tickers: string[]): Promise<Map<string, number>>;
   getEarningsCalendar(params: EarningsCalendarParams): Promise<EarningsEvent[]>;
   getEarningsEstimates(ticker: string, event?: EarningsEvent | null): Promise<EarningsEstimates | null>;
   getEarningsResults(ticker: string, event?: EarningsEvent | null): Promise<EarningsResults | null>;
