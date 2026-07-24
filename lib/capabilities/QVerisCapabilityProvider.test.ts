@@ -81,13 +81,82 @@ test("calendar uses current QVeris tool and maps earningsCalendar rows", async (
   const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
   const events = await provider.getEarningsCalendar({ from: "2099-07-20", to: "2099-07-20", universe: "NVDA" });
 
-  assert.equal(calls[0].body?.tool_id, "finnhub.calendar.earnings.retrieve.v1.1552775d");
-  assert.deepEqual(calls[0].body?.parameters, { from: "2099-07-20", to: "2099-07-20" });
+  assert.equal(calls[0].body?.tool_id, "alphavantage.earnings_calendar.list.v1.467a92c0");
+  assert.deepEqual(calls[0].body?.parameters, { function: "EARNINGS_CALENDAR", horizon: "3month" });
   assert.equal(events.length, 1);
   assert.equal(events[0].ticker, "NVDA");
   assert.equal(events[0].timing, "after_close");
   assert.equal(events[0].epsEstimate, 1.23);
   assert.equal(events[0].revenueEstimate, 456);
+});
+
+test("calendar supplements recent reported leaders from earnings history", async (t) => {
+  const calls = stubFetch(t, (_url, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
+    if (body.tool_id === "alphavantage.earnings.retrieve.v1.467a92c0") {
+      return jsonResponse({
+        success: true,
+        execution_id: "history-exec",
+        result: { data: { quarterlyEarnings: [{
+          fiscalDateEnding: "2026-06-30",
+          reportedDate: "2026-07-22",
+          reportedEPS: "2.31",
+          estimatedEPS: "2.18",
+        }] } },
+      });
+    }
+    if (body.tool_id === "alphavantage.earnings_estimates.retrieve.v1.467a92c0") {
+      return jsonResponse({ success: true, execution_id: "estimates-exec", result: { data: { estimates: [] } } });
+    }
+    return jsonResponse({ success: true, execution_id: "calendar-exec", result: { data: { earningsCalendar: [] } } });
+  });
+
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
+  const events = await provider.getEarningsCalendar({ from: "2026-07-20", to: "2026-07-24", universe: "GOOGL" });
+
+  assert.equal(calls.length, 3);
+  assert.deepEqual(events, [{
+    id: "GOOGL-2026-07-22",
+    ticker: "GOOGL",
+    reportDate: "2026-07-22",
+    fiscalPeriod: "Q2",
+    fiscalYear: 2026,
+    timing: "unknown",
+    status: "reported",
+    epsActual: 2.31,
+    epsEstimate: 2.18,
+    sourceIds: ["GOOGL-qveris-get_historical_earnings"],
+  }]);
+});
+
+test("core calendar uses live index constituents instead of the leader shortlist", async (t) => {
+  const calls = stubFetch(t, (_url, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
+    if (body.tool_id === "mcp_gildata.indexconstituentstocks.v1") {
+      const query = String((body.parameters as Record<string, unknown>)?.query ?? "");
+      return jsonResponse({
+        success: true,
+        execution_id: "index-exec",
+        result: { data: { results: [{ table_markdown: query.includes("S&P")
+          ? "|指数代码|指数简称|股票代码|股票简称|\n|---|---|---|---|\n|SPX.GI|标普500指数|LMT.NY|洛克希德马丁|"
+          : "|指数代码|指数简称|股票代码|股票简称|\n|---|---|---|---|\n|NDX.GI|纳斯达克100|GOOGL.N|Alphabet|" }] } },
+      });
+    }
+    return jsonResponse({
+      success: true,
+      execution_id: "calendar-exec",
+      result: { data: { earningsCalendar: [
+        { symbol: "LMT", date: "2099-07-20", quarter: 2, year: 2099, estimate: 7.28 },
+        { symbol: "UNLISTED", date: "2099-07-20", quarter: 2, year: 2099 },
+      ] } },
+    });
+  });
+
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
+  const events = await provider.getEarningsCalendar({ from: "2099-07-20", to: "2099-07-20", universe: "core" });
+
+  assert.equal(calls.filter((call) => call.body?.tool_id === "mcp_gildata.indexconstituentstocks.v1").length, 2);
+  assert.deepEqual(events.map((event) => event.ticker), ["LMT"]);
 });
 
 test("calendar supplements ASML quarterly 6-K from SEC submissions", async (t) => {
@@ -211,62 +280,29 @@ test("calendar does not call ADR supplements for a custom universe without ASML 
 
   assert.deepEqual(events, []);
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].body?.tool_id, "finnhub.calendar.earnings.retrieve.v1.1552775d");
+  assert.equal(calls[0].body?.tool_id, "alphavantage.earnings_calendar.list.v1.467a92c0");
 });
 
-test("calendar chunks long ranges with bounded concurrency and keeps early MU event", async (t) => {
-  let active = 0;
-  let maxActive = 0;
-  let firstChunkFailed = false;
-  const calls = stubFetch(t, async (_url, init) => {
-    active++;
-    maxActive = Math.max(maxActive, active);
-    await new Promise((resolve) => setTimeout(resolve, 5));
-    active--;
-    const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, { from?: string; to?: string }> : {};
-    const range = body.parameters ?? {};
-    if (range.from === "2026-06-16" && !firstChunkFailed) {
-      firstChunkFailed = true;
-      return providerReadFailedResponse();
-    }
-    if (range.from === "2026-06-30") {
-      return jsonResponse({ success: true, result: { data: { earningsCalendar: [] } } });
-    }
-    return jsonResponse({
-      success: true,
-      execution_id: `calendar-${range.from}`,
-      result: {
-        data: {
-          earningsCalendar: range.from === "2026-06-23"
-            ? [{
-                symbol: "MU",
-                date: "2026-06-24",
-                hour: "amc",
-                quarter: 3,
-                year: 2026,
-                epsEstimate: 21.4019,
-                epsActual: 25.11,
-                revenueEstimate: 36_923_508_824,
-                revenueActual: 41_456_000_000,
-              }]
-            : [],
-        },
-      },
-    });
-  });
+test("calendar parses quoted CSV and filters the requested date range", async (t) => {
+  const calls = stubFetch(t, () => jsonResponse({
+    success: true,
+    execution_id: "calendar-exec",
+    result: {
+      data: [
+        "symbol,name,reportDate,fiscalDateEnding,estimate,currency,timeOfTheDay",
+        'MU,"Micron Technology, Inc.",2026-06-24,2026-05-31,21.4019,USD,post-market',
+        "MU,Micron Technology Inc.,2026-09-20,2026-08-31,2.5,USD,post-market",
+      ].join("\n"),
+    },
+  }));
 
   const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
   const events = await provider.getEarningsCalendar({ from: "2026-06-16", to: "2026-08-30", universe: "MU" });
 
-  assert.equal(maxActive, 3);
-  assert.equal(calls.length, 12);
-  assert.ok(calls.some((call) => JSON.stringify(call.body?.parameters) === JSON.stringify({ from: "2026-06-16", to: "2026-06-22" })));
-  assert.ok(calls.every((call) => !("symbol" in (call.body?.parameters as Record<string, unknown>))));
+  assert.equal(calls.length, 1);
   assert.deepEqual(events.map((event) => event.id), ["MU-2026-06-24"]);
   assert.equal(events[0].epsEstimate, 21.4019);
-  assert.equal(events[0].epsActual, 25.11);
-  assert.equal(events[0].revenueEstimate, 36_923_508_824);
-  assert.equal(events[0].revenueActual, 41_456_000_000);
+  assert.equal(events[0].timing, "after_close");
 });
 
 test("earnings history and estimates use current inspected AlphaVantage tool ids", async (t) => {
@@ -750,7 +786,10 @@ test("full content hydration accepts trusted public downloads", async (t) => {
 test("full content hydration accepts QVeris object storage host", async (t) => {
   const calls = stubFetch(t, (url) => {
     if (url === "https://oss.qveris.cn/full.json") {
-      return new Response(JSON.stringify({ earningsCalendar: [{ symbol: "MU", date: "2026-06-24" }] }));
+      return new Response([
+        "symbol,name,reportDate,fiscalDateEnding,estimate,currency,timeOfTheDay",
+        "MU,Micron Technology Inc.,2026-06-24,2026-05-31,21.4,USD,post-market",
+      ].join("\n"));
     }
     return jsonResponse({
       success: true,

@@ -1,6 +1,6 @@
 import type { Lang } from "@/lib/i18n/dict";
 import type { SourceRef, TranscriptInsight } from "@/lib/earnings/types";
-import { aiApiKey, localEnv } from "@/lib/runtime/env";
+import { aiRuntimeConfig, localEnv } from "@/lib/runtime/env";
 
 const SOURCE_TITLES_ZH: Record<string, string> = {
   get_company_profile: "QVeris 公司档案",
@@ -84,15 +84,15 @@ export function localizeTranscript(transcript: TranscriptInsight | null | undefi
 export async function translateTranscript(transcript: TranscriptInsight | null | undefined, lang: Lang) {
   if (lang !== "zh" || !transcript?.available || !transcript.repeatedQuestions?.length) return transcript;
   const env = localEnv();
-  const apiKey = aiApiKey(env);
-  if (!apiKey) return transcript;
+  const ai = aiRuntimeConfig(env);
+  if (!ai) return transcript;
   try {
-    const res = await fetch(`${(env.OPENAI_BASE_URL || "https://api.deepseek.com").replace(/\/$/, "")}/chat/completions`, {
+    const res = await fetch(`${ai.baseUrl}/chat/completions`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` },
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${ai.apiKey}` },
       signal: AbortSignal.timeout(20_000),
       body: JSON.stringify({
-        model: env.OPENAI_MODEL || "deepseek-v4-flash",
+        model: ai.model,
         temperature: 0,
         thinking: { type: "disabled" },
         response_format: { type: "json_object" },

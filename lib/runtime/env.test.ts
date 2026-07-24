@@ -17,3 +17,13 @@ test("an OpenAI key without an explicit base URL is never sent to DeepSeek", () 
   assert.equal(config?.baseUrl, "https://api.openai.com/v1");
   assert.equal(config?.provider, "openai-compatible");
 });
+
+test("QVeris AI gateway resolves to its OpenAI-compatible v1 endpoint", () => {
+  const config = aiRuntimeConfig({
+    OPENAI_API_KEY: "qveris-test",
+    OPENAI_BASE_URL: "https://aigateway.qveris.ai/",
+    OPENAI_MODEL: "deepseek-v4-pro",
+  });
+  assert.equal(config?.baseUrl, "https://aigateway.qveris.ai/v1");
+  assert.equal(config?.model, "deepseek-v4-pro");
+});

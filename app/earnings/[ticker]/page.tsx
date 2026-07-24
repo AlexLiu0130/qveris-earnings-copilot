@@ -42,7 +42,7 @@ export default async function TickerResearchPage({
     includeNews: true,
     includeFilings: true,
     includeTranscript: true,
-    includeAiInterpretation: false,
+    includeAiInterpretation: true,
   };
   let analysis;
   try {
@@ -86,7 +86,7 @@ export default async function TickerResearchPage({
               language={analysis.language}
               ticker={analysis.ticker}
               analysisId={analysis.analysisId}
-              autoLoad={!analysisId && !cachedInterpretation}
+              autoLoad={false}
             />
           </div>
           <div className="rise rise-4">

@@ -22,12 +22,13 @@ import type {
   StockQuote,
   TranscriptInsight,
 } from "@/lib/earnings/types";
-import { calendarSymbolsForUniverse } from "@/lib/earnings/universe";
+import { calendarSymbolsForUniverse, recentHistorySymbolsForUniverse } from "@/lib/earnings/universe";
 import { filterRelevantNews, selectFiscalPeriod } from "@/lib/earnings/dataQuality";
 import { readQVerisFetchCache, writeQVerisFetchCache } from "@/lib/capabilities/qverisFetchCache";
 
 const DEFAULT_BASE_URL = "https://qveris.ai/api/v1";
-const CALENDAR_TOOL_ID = "finnhub.calendar.earnings.retrieve.v1.1552775d";
+const CALENDAR_TOOL_ID = "alphavantage.earnings_calendar.list.v1.467a92c0";
+const INDEX_CONSTITUENTS_TOOL_ID = "mcp_gildata.indexconstituentstocks.v1";
 const SEC_COMPANY_SUBMISSIONS_TOOL_ID = "sec.company.submissions.v1";
 const PROFILE_TOOL_ID = "finnhub.company.profile.v2.get.v1";
 const EARNINGS_HISTORY_TOOL_ID = "alphavantage.earnings.retrieve.v1.467a92c0";
@@ -128,15 +129,17 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
   }
 
   async getEarningsCalendar(params: EarningsCalendarParams): Promise<EarningsEvent[]> {
-    const allowedSymbols = calendarSymbolsForUniverse(params.universe);
     const today = todayIso();
-    const rows = await mapLimit(calendarRanges(params.from, params.to), 3, (range) => this.execute(CALENDAR_TOOL_ID, range));
+    const [payload, allowedSymbols] = await Promise.all([
+      this.execute(CALENDAR_TOOL_ID, { function: "EARNINGS_CALENDAR", horizon: "3month" }),
+      this.getCalendarUniverseSymbols(params.universe),
+    ]);
+    const rows = calendarRows(payload.data);
+    if (!rows) throw new QVerisCapabilityError(CALENDAR_TOOL_ID, "business_error", undefined, "QVeris calendar payload missing earningsCalendar array or CSV rows");
     const seen = new Set<string>();
-    const primaryEvents = rows.flatMap((payload) => {
-      const events = asRecord(payload.data)?.earningsCalendar;
-      if (!Array.isArray(events)) throw new QVerisCapabilityError(CALENDAR_TOOL_ID, "business_error", undefined, "QVeris calendar payload missing earningsCalendar array");
-      return events
+    const primaryEvents = rows
         .filter((event): event is Record<string, unknown> => Boolean(asRecord(event)?.date))
+        .filter((event) => String(event.date) >= params.from && String(event.date) <= params.to)
         .filter((event) => {
           const ticker = String(event.symbol || "").toUpperCase();
           return !allowedSymbols || allowedSymbols.includes(ticker);
@@ -150,24 +153,68 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
         .map((event): EarningsEvent => {
           const ticker = String(event.symbol || "UNKNOWN").toUpperCase();
           const sourceId = this.recordSource(ticker, "get_earnings_calendar", "QVeris earnings calendar", CALENDAR_TOOL_ID, payload.executionId);
+          const fiscal = fiscalQuarterFromQuarterEnd(String(event.fiscalDateEnding ?? ""));
           return {
             id: `${ticker}-${event.date}`,
             ticker,
-            fiscalPeriod: event.quarter ? `Q${event.quarter}` : undefined,
-            fiscalYear: event.year ? Number(event.year) : undefined,
+            fiscalPeriod: event.quarter ? `Q${event.quarter}` : fiscal?.period,
+            fiscalYear: event.year ? Number(event.year) : fiscal?.year,
             reportDate: String(event.date),
-            timing: normalizeTiming(event.hour),
+            timing: normalizeTiming(event.hour ?? event.timeOfTheDay),
             status: normalizeStatus(event, today),
             revenueActual: numberValue(event.revenueActual),
             epsActual: numberValue(event.epsActual),
             revenueEstimate: numberValue(event.revenueEstimate),
-            epsEstimate: numberValue(event.epsEstimate),
+            epsEstimate: numberValue(event.epsEstimate ?? event.estimate),
             sourceIds: [sourceId],
           };
         });
-    });
-    const supplements = await this.getCoreAdrCalendarSupplements(params, allowedSymbols);
-    return mergeCalendarEvents(primaryEvents, supplements);
+    const [adrSupplements, historySupplements] = await Promise.all([
+      this.getCoreAdrCalendarSupplements(params, allowedSymbols),
+      params.from <= today ? this.getRecentHistoryCalendarSupplements(params) : Promise.resolve([]),
+    ]);
+    return mergeCalendarEvents(primaryEvents, [...adrSupplements, ...historySupplements]);
+  }
+
+  private async getCalendarUniverseSymbols(universe?: string) {
+    const fallback = calendarSymbolsForUniverse(universe);
+    const normalized = universe?.trim().toLowerCase();
+    if (normalized === "all" || normalized === "hot_small_caps" || normalized === "small_caps") return fallback;
+    if (normalized && !["core", "popular", "sp500", "nasdaq"].includes(normalized)) return fallback;
+    const queries = normalized === "sp500"
+      ? ["S&P 500 index constituents, include all ticker symbols"]
+      : normalized === "nasdaq"
+        ? ["Nasdaq 100 index constituents, include all ticker symbols"]
+        : ["S&P 500 index constituents, include all ticker symbols", "Nasdaq 100 index constituents, include all ticker symbols"];
+    const calls = await Promise.allSettled(queries.map((query) => this.execute(INDEX_CONSTITUENTS_TOOL_ID, { query })));
+    const symbols = calls.flatMap((call) => call.status === "fulfilled" ? indexConstituentSymbols(call.value.data) : []);
+    if (!symbols.length) return fallback;
+    return [...new Set(normalized === "sp500" || normalized === "nasdaq" ? symbols : [...symbols, ...(fallback ?? [])])];
+  }
+
+  private async getRecentHistoryCalendarSupplements(params: EarningsCalendarParams): Promise<EarningsEvent[]> {
+    const results = await Promise.allSettled(
+      recentHistorySymbolsForUniverse(params.universe).map(async (ticker) => {
+        const history = await this.getHistoricalEarnings(ticker, 2);
+        return history.flatMap((item): EarningsEvent[] => {
+          if (item.reportDate < params.from || item.reportDate > params.to) return [];
+          const fiscal = fiscalQuarterFromQuarterEnd(item.fiscalPeriod ?? "");
+          return [{
+            id: `${ticker}-${item.reportDate}`,
+            ticker,
+            reportDate: item.reportDate,
+            fiscalPeriod: fiscal?.period,
+            fiscalYear: fiscal?.year,
+            timing: "unknown",
+            status: "reported",
+            epsActual: item.epsActual,
+            epsEstimate: item.epsEstimate,
+            sourceIds: item.sourceIds,
+          }];
+        });
+      }),
+    );
+    return results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
   }
 
   async getEarningsEstimates(ticker: string, event?: string | EarningsEvent | null): Promise<EarningsEstimates | null> {
@@ -656,39 +703,9 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
 
 function normalizeTiming(raw: unknown): EarningsEvent["timing"] {
   const value = String(raw ?? "").toLowerCase();
-  if (value.includes("bmo") || value.includes("before")) return "before_open";
-  if (value.includes("amc") || value.includes("after")) return "after_close";
+  if (value.includes("bmo") || value.includes("before") || value.includes("pre-market")) return "before_open";
+  if (value.includes("amc") || value.includes("after") || value.includes("post-market")) return "after_close";
   return "unknown";
-}
-
-async function mapLimit<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  const workers = Array.from({ length: Math.min(limit, items.length) }, async () => {
-    while (next < items.length) {
-      const index = next++;
-      results[index] = await fn(items[index]);
-    }
-  });
-  await Promise.all(workers);
-  return results;
-}
-
-function calendarRanges(from: string, to: string) {
-  const start = parseIsoDate(from);
-  const end = parseIsoDate(to);
-  if (!start || !end || start > end) return [{ from, to }];
-  const ranges: Array<{ from: string; to: string }> = [];
-  let cursor = start;
-  while (cursor <= end) {
-    const chunkEnd = new Date(cursor);
-    chunkEnd.setUTCDate(chunkEnd.getUTCDate() + 6);
-    if (chunkEnd > end) chunkEnd.setTime(end.getTime());
-    ranges.push({ from: formatIsoDate(cursor), to: formatIsoDate(chunkEnd) });
-    cursor = new Date(chunkEnd);
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  return ranges;
 }
 
 function parseIsoDate(value: string) {
@@ -697,8 +714,60 @@ function parseIsoDate(value: string) {
   return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
 }
 
-function formatIsoDate(value: Date) {
-  return value.toISOString().slice(0, 10);
+function calendarRows(value: unknown): Record<string, unknown>[] | null {
+  const legacy = asRecord(value)?.earningsCalendar;
+  if (Array.isArray(legacy)) return arrayRecords(legacy);
+  if (typeof value !== "string") return null;
+  const rows = parseCsv(value);
+  if (!rows.length || !("symbol" in rows[0]) || !("reportDate" in rows[0])) return null;
+  return rows.map((row) => ({ ...row, date: row.reportDate }));
+}
+
+function indexConstituentSymbols(value: unknown) {
+  const results = asRecord(value)?.results;
+  if (!Array.isArray(results)) return [];
+  return results.flatMap((result) => {
+    const markdown = stringValue(asRecord(result)?.table_markdown);
+    if (!markdown) return [];
+    return markdown.split("\n").flatMap((line) => {
+      const symbol = line.split("|")[3]?.trim();
+      return symbol && !symbol.includes("股票代码") && !symbol.startsWith("---")
+        ? [symbol.replace(/\.(?:NY|N)$/i, "").toUpperCase()]
+        : [];
+    });
+  });
+}
+
+function parseCsv(value: string) {
+  const table: string[][] = [];
+  let row: string[] = [];
+  let field = "";
+  let quoted = false;
+  for (let index = 0; index < value.length; index++) {
+    const char = value[index];
+    if (char === '"' && quoted && value[index + 1] === '"') {
+      field += '"';
+      index++;
+    } else if (char === '"') {
+      quoted = !quoted;
+    } else if (char === "," && !quoted) {
+      row.push(field);
+      field = "";
+    } else if ((char === "\n" || char === "\r") && !quoted) {
+      if (char === "\r" && value[index + 1] === "\n") index++;
+      row.push(field);
+      if (row.some(Boolean)) table.push(row);
+      row = [];
+      field = "";
+    } else {
+      field += char;
+    }
+  }
+  row.push(field);
+  if (row.some(Boolean)) table.push(row);
+  const [headers, ...rows] = table;
+  if (!headers?.length) return [];
+  return rows.map((values) => Object.fromEntries(headers.map((header, index) => [header, values[index] ?? ""])));
 }
 
 function normalizeStatus(event: Record<string, unknown>, today: string): EarningsEvent["status"] {
@@ -855,7 +924,7 @@ async function hydrateFullContent(value: unknown, baseUrl: string) {
   const url = stringValue(record?.full_content_file_url);
   if (!url) return value;
   try {
-    const hydrated = await fetchTrustedJson(publicQVerisResultUrl(new URL(url), baseUrl));
+    const hydrated = await fetchTrustedContent(publicQVerisResultUrl(new URL(url), baseUrl));
     return hydrated ?? value;
   } catch {
     return value;
@@ -870,7 +939,7 @@ function publicQVerisResultUrl(url: URL, baseUrl: string) {
     : url;
 }
 
-async function fetchTrustedJson(url: URL, redirects = 0): Promise<unknown | null> {
+async function fetchTrustedContent(url: URL, redirects = 0): Promise<unknown | null> {
   if (!isTrustedFullContentUrl(url) || redirects > 3) return null;
   const res = await fetch(url, {
     redirect: "manual",
@@ -878,12 +947,16 @@ async function fetchTrustedJson(url: URL, redirects = 0): Promise<unknown | null
   });
   if (res.status >= 300 && res.status < 400) {
     const location = res.headers.get("location");
-    return location ? fetchTrustedJson(new URL(location, url), redirects + 1) : null;
+    return location ? fetchTrustedContent(new URL(location, url), redirects + 1) : null;
   }
   if (!res.ok || isOversize(res.headers.get("content-length"))) return null;
   const text = await readLimitedText(res);
   if (text == null) return null;
-  return JSON.parse(text);
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
 }
 
 function isTrustedFullContentUrl(url: URL) {
