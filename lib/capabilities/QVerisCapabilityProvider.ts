@@ -249,11 +249,8 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
     const to = params.to < today ? params.to : today;
     if (from > to) return [];
     const dates = isoDates(from, to);
-    const calls = [];
-    for (let index = 0; index < dates.length; index += 8) {
-      calls.push(...await Promise.allSettled(dates.slice(index, index + 8).map((date) =>
-        this.execute(CONSENSUS_CALENDAR_TOOL_ID, { from: date, to: date }))));
-    }
+    const calls = await Promise.allSettled(dates.map((date) =>
+      this.execute(CONSENSUS_CALENDAR_TOOL_ID, { from: date, to: date })));
     return calls.flatMap((result): EarningsEvent[] => {
       if (result.status !== "fulfilled") return [];
       const rows = calendarRows(result.value.data);
