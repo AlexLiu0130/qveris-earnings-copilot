@@ -32,6 +32,9 @@ async function uncachedEarningsCalendar(params: EarningsCalendarParams, provider
   let events = await filterAndSort(stored.events, params);
   let sources = stored.sources.filter((source) => sourceIdsFrom(...events).includes(source.id));
   const issues: DataIssue[] = [];
+  if (events.length && sources.some((source) => Date.parse(source.retrievedAt) + cacheTtlMs() > Date.now())) {
+    return { from, to, events, sources, issues, missing: [] };
+  }
   try {
     const rawEvents = await provider.getEarningsCalendar({
       from,
