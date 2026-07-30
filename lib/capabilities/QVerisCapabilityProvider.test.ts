@@ -409,11 +409,9 @@ test("earnings history and estimates use the fixed inspected tools", async (t) =
   assert.equal(history[0].epsActual, 1.2);
   assert.equal(history[0].reportDate, "2099-07-20");
   assert.equal((await provider.getEarningsEstimates("MU"))?.revenueEstimate, 100);
-  assert.equal(calls[0].body?.tool_id, "finnhub.stock.earnings.retrieve.v1.dda8afb8");
-  assert.deepEqual(calls[0].body?.parameters, { symbol: "MU", limit: 8 });
-  assert.equal(calls[1].body?.tool_id, "twelvedata.earnings.retrieve.v1.e3dcf5a7");
-  assert.deepEqual(calls[1].body?.parameters, { symbol: "MU", outputsize: 8, format: "JSON" });
-  assert.equal(calls[2].body?.tool_id, "finnhub.calendar.earnings.retrieve.v1.1552775d");
+  assert.deepEqual(calls.find((call) => call.body?.tool_id === "finnhub.stock.earnings.retrieve.v1.dda8afb8")?.body?.parameters, { symbol: "MU", limit: 8 });
+  assert.deepEqual(calls.find((call) => call.body?.tool_id === "twelvedata.earnings.retrieve.v1.e3dcf5a7")?.body?.parameters, { symbol: "MU", outputsize: 8, format: "JSON" });
+  assert.ok(calls.some((call) => call.body?.tool_id === "finnhub.calendar.earnings.retrieve.v1.1552775d"));
 });
 
 test("event estimates and historical eps reject wrong fiscal quarter identity", async (t) => {
@@ -503,7 +501,7 @@ test("event estimates and historical eps accept matching fiscal quarter identity
     }
     if (body.tool_id === "twelvedata.earnings.retrieve.v1.e3dcf5a7") {
       return jsonResponse({ success: true, result: { data: { earnings: [
-        { date: "2099-07-20", eps_actual: 1.23 },
+        { date: "2099-04-20", eps_actual: 0.9 },
       ] } } });
     }
     if (body.tool_id === "financialmodelingprep.stable.incomestatement.retrieve.v1.dd6d583f") {

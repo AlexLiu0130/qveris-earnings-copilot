@@ -156,6 +156,8 @@ export interface EarningsResults {
 export interface HistoricalEarnings {
   eventId: string;
   fiscalPeriod?: string;
+  fiscalYear?: number;
+  fiscalQuarter?: number;
   reportDate: string;
   revenueActual?: number;
   revenueEstimate?: number;

@@ -412,6 +412,8 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
       return {
         eventId: `${ticker.toUpperCase()}-earnings-${fiscalPeriod ?? index}`,
         fiscalPeriod,
+        fiscalYear: numberValue(row.year) ?? yearFromIsoDate(fiscalPeriod),
+        fiscalQuarter: numberValue(row.quarter),
         reportDate,
         epsActual,
         epsEstimate,
@@ -1154,7 +1156,12 @@ export function transcriptPeriod(event?: EarningsEvent | null) {
 
 function selectHistoricalPeriod(rows: HistoricalEarnings[], event?: EarningsEvent | null) {
   if (!event) return rows[0];
-  return rows.find((row) => row.reportDate === event.reportDate && historicalFiscalYearMatches(row, event));
+  const exact = rows.find((row) => row.reportDate === event.reportDate && historicalFiscalYearMatches(row, event));
+  const eventQuarter = Number(fiscalQuarter(event.fiscalPeriod));
+  if (exact || event.fiscalYear == null || !Number.isFinite(eventQuarter)) return exact;
+  return rows.find((row) =>
+    row.fiscalYear === event.fiscalYear
+    && row.fiscalQuarter === eventQuarter);
 }
 
 function historicalFiscalYearMatches(row: HistoricalEarnings, event: EarningsEvent) {
