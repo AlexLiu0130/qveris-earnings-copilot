@@ -1,4 +1,4 @@
-import type { AnalyzeEarningsRequest, EarningsAnalysis } from "@/lib/earnings/types";
+import type { AnalyzeEarningsRequest, EarningsAnalysis, EarningsEstimates, EarningsEvent, SourceRef } from "@/lib/earnings/types";
 import { buildAnalysisId, requestKey } from "@/lib/earnings/analysisId";
 import {
   D1PersistenceError,
@@ -43,6 +43,20 @@ interface FactRow {
 
 interface RawFetchRow {
   cache_key: string;
+}
+
+interface StoredEstimateRow {
+  metric: "revenue_estimate" | "eps_estimate";
+  value_number: number;
+  fact_version: number;
+  source_ref_id: string | null;
+  provider: string | null;
+  capability: string | null;
+  execution_id: string | null;
+  title: string | null;
+  url: string | null;
+  published_at: string | null;
+  retrieved_at: string | null;
 }
 
 interface StoredSourceRef {
@@ -94,6 +108,86 @@ export async function saveAnalysis(request: AnalyzeEarningsRequest, analysis: Ea
       error: error instanceof Error ? error.name : "UnknownError",
     });
     return;
+  }
+}
+
+export async function saveCalendarSnapshot(events: EarningsEvent[], sources: SourceRef[], dataAsOf = new Date().toISOString()) {
+  const db = getD1();
+  if (!db || events.length === 0) return;
+
+  try {
+    const storedSources = await saveSourceRefs(db, sources);
+    for (const event of events) {
+      const eventDbId = await saveEvent(db, event, dataAsOf);
+      const periodKey = event.fiscalYear !== undefined && event.fiscalPeriod
+        ? `${event.fiscalYear}:${event.fiscalPeriod}`
+        : event.reportDate;
+      const sourceRef = factSourceRef(storedSources, undefined, event.sourceIds);
+      const facts = [
+        numberFact("revenue_actual", "actual", event.revenueActual, "currency", null, sourceRef),
+        numberFact("revenue_estimate", "estimate", event.revenueEstimate, "currency", null, sourceRef),
+        numberFact("eps_actual", "actual", event.epsActual, "currency_per_share", null, sourceRef),
+        numberFact("eps_estimate", "estimate", event.epsEstimate, "currency_per_share", null, sourceRef),
+      ].filter((fact): fact is EventFact => fact !== null);
+      for (const fact of facts) await saveEventFact(db, dataAsOf, eventDbId, periodKey, fact);
+    }
+  } catch (error) {
+    if (isProductionRuntime()) {
+      throw isD1PersistenceError(error)
+        ? error
+        : new D1PersistenceError("D1 calendar persistence failed", "D1_WRITE_FAILED", error);
+    }
+    console.error("D1 calendar persistence failed");
+  }
+}
+
+export async function getStoredEventEstimates(event: EarningsEvent): Promise<{ estimates: EarningsEstimates | null; sources: SourceRef[] }> {
+  const db = getD1();
+  if (!db) return { estimates: null, sources: [] };
+
+  try {
+    const { results = [] } = await db.prepare(
+      `SELECT ef.metric, ef.value_number, ef.fact_version,
+              sr.source_ref_id, sr.provider, sr.capability, sr.execution_id,
+              sr.title, sr.url, sr.published_at, sr.retrieved_at
+       FROM event_facts ef
+       LEFT JOIN source_refs sr ON sr.source_ref_id = ef.source_ref_id
+       WHERE ef.event_id = ?
+         AND ef.fact_type = 'estimate'
+         AND ef.metric IN ('revenue_estimate', 'eps_estimate')
+       ORDER BY ef.fact_version DESC`,
+    ).bind(eventIdentity(event).eventId).all<StoredEstimateRow>();
+    const latest = new Map<StoredEstimateRow["metric"], StoredEstimateRow>();
+    for (const row of results) if (!latest.has(row.metric)) latest.set(row.metric, row);
+    const revenue = latest.get("revenue_estimate");
+    const eps = latest.get("eps_estimate");
+    if (!revenue && !eps) return { estimates: null, sources: [] };
+    const sources = [...new Map(
+      [revenue, eps]
+        .filter((row): row is StoredEstimateRow => Boolean(row?.source_ref_id))
+        .map((row) => [row.source_ref_id!, storedSource(row)]),
+    ).values()];
+    return {
+      estimates: {
+        ticker: event.ticker,
+        eventId: event.id,
+        revenueEstimate: revenue?.value_number,
+        epsEstimate: eps?.value_number,
+        sourceIds: sources.map((source) => source.id),
+        fieldSourceIds: {
+          revenueEstimate: revenue?.source_ref_id ? [revenue.source_ref_id] : undefined,
+          epsEstimate: eps?.source_ref_id ? [eps.source_ref_id] : undefined,
+        },
+      },
+      sources,
+    };
+  } catch (error) {
+    if (isProductionRuntime()) {
+      throw isD1PersistenceError(error)
+        ? error
+        : new D1PersistenceError("D1 stored estimates read failed", "D1_READ_FAILED", error);
+    }
+    return { estimates: null, sources: [] };
   }
 }
 
@@ -294,44 +388,52 @@ function isSnapshotIdConflict(error: unknown) {
 }
 
 async function saveResearchAssets(db: D1DatabaseBinding, analysis: EarningsAnalysis) {
-  const now = new Date().toISOString();
   const event = analysis.event ?? analysis.upcomingEvent ?? analysis.recentEvent;
-  if (event) {
-    const identity = eventIdentity(event);
-    await runWrite(db.prepare(
-      `INSERT INTO earnings_events (
-         event_id, canonical_key, ticker, fiscal_year, fiscal_period, report_date,
-         timing, status, event_version, data_as_of, first_seen_at, last_seen_at
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(event_id) DO UPDATE SET
-         canonical_key = excluded.canonical_key,
-         ticker = excluded.ticker,
-         fiscal_year = excluded.fiscal_year,
-         fiscal_period = excluded.fiscal_period,
-         report_date = excluded.report_date,
-         timing = excluded.timing,
-         status = excluded.status,
-         event_version = excluded.event_version,
-         data_as_of = excluded.data_as_of,
-         last_seen_at = excluded.last_seen_at`,
-    ).bind(
-      identity.eventId,
-      identity.canonicalKey,
-      normalizeTicker(event.ticker),
-      event.fiscalYear ?? null,
-      event.fiscalPeriod ?? null,
-      event.reportDate,
-      event.timing,
-      event.status,
-      identity.version,
-      analysis.generatedAt,
-      now,
-      now,
-    ));
-  }
+  if (event) await saveEvent(db, event, analysis.generatedAt);
+  const sourceRefs = await saveSourceRefs(db, analysis.sources);
 
+  if (event) await saveEventFacts(db, analysis, event, sourceRefs);
+}
+
+async function saveEvent(db: D1DatabaseBinding, event: EarningsEvent, dataAsOf: string) {
+  const identity = eventIdentity(event);
+  const now = new Date().toISOString();
+  await runWrite(db.prepare(
+    `INSERT INTO earnings_events (
+       event_id, canonical_key, ticker, fiscal_year, fiscal_period, report_date,
+       timing, status, event_version, data_as_of, first_seen_at, last_seen_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(event_id) DO UPDATE SET
+       canonical_key = excluded.canonical_key,
+       ticker = excluded.ticker,
+       fiscal_year = excluded.fiscal_year,
+       fiscal_period = excluded.fiscal_period,
+       report_date = excluded.report_date,
+       timing = excluded.timing,
+       status = excluded.status,
+       event_version = excluded.event_version,
+       data_as_of = excluded.data_as_of,
+       last_seen_at = excluded.last_seen_at`,
+  ).bind(
+    identity.eventId,
+    identity.canonicalKey,
+    normalizeTicker(event.ticker),
+    event.fiscalYear ?? null,
+    event.fiscalPeriod ?? null,
+    event.reportDate,
+    event.timing,
+    event.status,
+    identity.version,
+    dataAsOf,
+    now,
+    now,
+  ));
+  return identity.eventId;
+}
+
+async function saveSourceRefs(db: D1DatabaseBinding, sources: SourceRef[]) {
   const sourceRefs = new Map<string, StoredSourceRef>();
-  for (const source of analysis.sources) {
+  for (const source of sources) {
     const sourceRef = {
       sourceRefId: sourceStorageId(source),
       rawFetchId: await latestRawFetchId(db, source.executionId),
@@ -356,8 +458,7 @@ async function saveResearchAssets(db: D1DatabaseBinding, analysis: EarningsAnaly
       sourceRef.sourceRefId,
     ));
   }
-
-  if (event) await saveEventFacts(db, analysis, event, sourceRefs);
+  return sourceRefs;
 }
 
 async function saveEventFacts(
@@ -445,13 +546,13 @@ async function saveEventFacts(
   ].filter((fact): fact is EventFact => fact !== null);
 
   for (const fact of facts) {
-    await saveEventFact(db, analysis, eventDbId, periodKey, fact);
+    await saveEventFact(db, analysis.generatedAt, eventDbId, periodKey, fact);
   }
 }
 
 async function saveEventFact(
   db: D1DatabaseBinding,
-  analysis: EarningsAnalysis,
+  asOf: string,
   eventDbId: string,
   periodKey: string,
   fact: EventFact,
@@ -480,7 +581,7 @@ async function saveEventFact(
       fact.sourceRefId,
       fact.rawFetchId,
       factVersion,
-      analysis.generatedAt,
+      asOf,
     ));
     const stored = await storedFactById(db, factId);
     if (stored && sameFact(stored, fact)) return;
@@ -599,6 +700,19 @@ async function latestRawFetchId(db: D1DatabaseBinding, executionId: string | und
 
 function sourceStorageId(source: EarningsAnalysis["sources"][number]) {
   return `${source.id}:${source.executionId ?? source.retrievedAt}`;
+}
+
+function storedSource(row: StoredEstimateRow): SourceRef {
+  return {
+    id: row.source_ref_id!,
+    title: row.title ?? "Stored earnings estimate",
+    provider: row.provider ?? "unknown",
+    capability: row.capability ?? undefined,
+    executionId: row.execution_id ?? undefined,
+    url: row.url ?? undefined,
+    publishedAt: row.published_at ?? undefined,
+    retrievedAt: row.retrieved_at ?? new Date(0).toISOString(),
+  };
 }
 
 function eventCanonicalKey(event: NonNullable<EarningsAnalysis["event"]>) {

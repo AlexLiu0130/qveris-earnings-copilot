@@ -6,8 +6,10 @@ import {
   __clearAnalysisStoreForTests,
   getAnalysisById,
   getCachedAnalysis,
+  getStoredEventEstimates,
   listAnalysesByTicker,
   saveAnalysis,
+  saveCalendarSnapshot,
 } from "@/lib/earnings/analysisStore";
 import type { AnalyzeEarningsRequest, EarningsAnalysis } from "@/lib/earnings/types";
 import { D1PersistenceError, __setD1ForTests, type D1DatabaseBinding, type D1PreparedStatement } from "@/lib/storage/d1";
@@ -102,6 +104,48 @@ test("first save persists schema-correct assets before the snapshot", async () =
 
   __clearAnalysisStoreForTests();
   assert.equal((await getAnalysisById(analysis.analysisId))?.analysisId, analysis.analysisId);
+});
+
+test("calendar snapshots preserve non-empty estimates when a later response omits them", async () => {
+  const db = new FakeD1();
+  __setD1ForTests(db);
+  const source = {
+    id: "MU-calendar",
+    title: "QVeris earnings calendar",
+    provider: "QVeris",
+    capability: "get_earnings_calendar",
+    executionId: "calendar-exec",
+    retrievedAt: "2026-06-20T00:00:00.000Z",
+  };
+  const event = {
+    id: "MU-2026-06-24",
+    ticker: "MU",
+    fiscalPeriod: "Q3",
+    fiscalYear: 2026,
+    reportDate: "2026-06-24",
+    timing: "after_close" as const,
+    status: "upcoming" as const,
+    revenueEstimate: 36_923_508_824,
+    epsEstimate: 21.4019,
+    sourceIds: [source.id],
+  };
+
+  await saveCalendarSnapshot([event], [source], source.retrievedAt);
+  await saveCalendarSnapshot(
+    [{ ...event, status: "reported", revenueEstimate: undefined, epsEstimate: undefined }],
+    [source],
+    "2026-07-30T00:00:00.000Z",
+  );
+
+  const eventId = "MU:2026:Q3:20260624";
+  assert.equal(db.table("event_facts").get(`${eventId}:revenue_estimate:v1`)?.value_number, 36_923_508_824);
+  assert.equal(db.table("event_facts").get(`${eventId}:eps_estimate:v1`)?.value_number, 21.4019);
+  assert.equal([...db.table("event_facts").keys()].filter((key) => String(key).includes("revenue_estimate")).length, 1);
+  assert.equal(db.table("earnings_events").get(eventId)?.status, "reported");
+  const stored = await getStoredEventEstimates(event);
+  assert.equal(stored.estimates?.revenueEstimate, 36_923_508_824);
+  assert.equal(stored.estimates?.epsEstimate, 21.4019);
+  assert.equal(stored.sources[0]?.provider, "QVeris");
 });
 
 test("same fiscal quarter date revisions persist as separate event versions", async () => {
@@ -774,6 +818,33 @@ class FakeStatement implements D1PreparedStatement {
   }
 
   async all<T>(): Promise<{ results?: T[] }> {
+    if (/FROM event_facts ef/i.test(this.sql)) {
+      return {
+        results: [...this.db.table("event_facts").values()]
+          .filter((row) => row.event_id === this.values[0]
+            && row.fact_type === "estimate"
+            && (row.metric === "revenue_estimate" || row.metric === "eps_estimate"))
+          .sort((a, b) => Number(b.fact_version) - Number(a.fact_version))
+          .map((row) => {
+            const source = row.source_ref_id
+              ? this.db.table("source_refs").get(String(row.source_ref_id))
+              : undefined;
+            return {
+              metric: row.metric,
+              value_number: row.value_number,
+              fact_version: row.fact_version,
+              source_ref_id: row.source_ref_id,
+              provider: source?.provider ?? null,
+              capability: source?.capability ?? null,
+              execution_id: source?.execution_id ?? null,
+              title: source?.title ?? null,
+              url: source?.url ?? null,
+              published_at: source?.published_at ?? null,
+              retrieved_at: source?.retrieved_at ?? null,
+            };
+          }) as T[],
+      };
+    }
     if (/WHERE ticker = \?/i.test(this.sql)) {
       const limit = Number(this.values[1]);
       return {

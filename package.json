@@ -17,6 +17,8 @@
     "db:generate": "drizzle-kit generate",
     "start": "NEXT_DIST_DIR=.next-codex next start",
     "test": "tsx --test \"lib/**/*.test.ts\" \"app/**/*.test.ts\"",
+    "archive:qveris:estimates": "node --env-file=.env --import tsx scripts/archive-qveris-estimates.ts",
+    "probe:qveris:earnings": "node --env-file=.env --import tsx scripts/probe-qveris-earnings.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

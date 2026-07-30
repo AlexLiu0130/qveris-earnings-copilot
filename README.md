@@ -199,6 +199,7 @@ This is a local validation only. It does not apply or verify production migratio
 - `source_refs` are immutable per source execution version (`source.id` + `executionId` or retrieval time). When an `executionId` has a matching `qveris_fetch_cache` row, `raw_fetch_id` links to that raw row; otherwise it is `null`.
 - `event_facts.raw_fetch_id` follows the selected source ref's raw fetch link, so facts can trace back to the existing raw row when one exists and remain `null` when it does not.
 - Research assets (`research_snapshots`, `earnings_events`, `source_refs`, `event_facts`) are long-lived. Raw fetch rows referenced by `source_refs.raw_fetch_id` or `event_facts.raw_fetch_id` are retained for lineage; only unreferenced raw cache rows are deleted after they have been expired for more than 90 days.
+- Successful calendar reads persist non-empty event facts immediately. Run `npm run archive:qveris:estimates` once per day in production to capture the final pre-report consensus before provider history rolls off; stored non-empty estimates are reused when a later provider response omits them.
 
 ## Deployment Pre-Check
 

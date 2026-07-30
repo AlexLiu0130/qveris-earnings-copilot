@@ -17,7 +17,8 @@ import { detectDataConflicts, resolveEventEstimates, selectFiscalPeriod } from "
 import { buildMarketReaction } from "@/lib/earnings/marketReaction";
 import { localizeGuidanceText, localizeSources, localizeTranscript, translateTranscript } from "@/lib/earnings/localize";
 import { dataIssue, isQVerisCapabilityError } from "@/lib/earnings/providerIssues";
-import type { AnalyzeEarningsRequest, AnalyzeEarningsResponse, ClaimSourceIds, DataIssue, EarningsAnalysis, EarningsClaimSourceIds, FilingParams, ResolvedAnalysisMode } from "@/lib/earnings/types";
+import { getStoredEventEstimates } from "@/lib/earnings/analysisStore";
+import type { AnalyzeEarningsRequest, AnalyzeEarningsResponse, ClaimSourceIds, DataIssue, EarningsAnalysis, EarningsClaimSourceIds, EarningsEstimates, FilingParams, ResolvedAnalysisMode } from "@/lib/earnings/types";
 
 export async function analyzeEarnings(
   request: AnalyzeEarningsRequest,
@@ -62,6 +63,7 @@ export async function analyzeEarnings(
     filings,
     providerTranscript,
     analystRevisions,
+    storedEstimateEvidence,
   ] = await Promise.all([
     safe("profile", "PROFILE_UNAVAILABLE", () => provider.getCompanyProfile(ticker), null),
     safe("estimates", "ESTIMATES_UNAVAILABLE", () => provider.getEarningsEstimates(ticker, event), null),
@@ -81,11 +83,16 @@ export async function analyzeEarnings(
       ? Promise.resolve(null)
       : safe("transcript", "TRANSCRIPT_UNAVAILABLE", () => provider.getEarningsTranscript?.(ticker, event) ?? Promise.resolve(null), null),
     safe("analystRevisions", "ANALYST_REVISIONS_UNAVAILABLE", () => provider.getAnalystRevisions?.(ticker, { limit: 5 }) ?? Promise.resolve([]), []),
+    event ? getStoredEventEstimates(event) : Promise.resolve({ estimates: null, sources: [] }),
   ]);
 
   if (!company && calendar.length === 0 && !quote && issues.length === 0) throw new Error("TICKER_NOT_FOUND");
 
-  const estimates = resolveEventEstimates(event, providerEstimates, historicalPattern);
+  const estimates = resolveEventEstimates(
+    event,
+    mergeEstimateFallback(providerEstimates, storedEstimateEvidence.estimates),
+    historicalPattern,
+  );
   const results = providerResults ? {
     ...providerResults,
     guidanceText: localizeGuidanceText(providerResults.guidanceText, language, event?.fiscalYear),
@@ -136,7 +143,11 @@ export async function analyzeEarnings(
     ...filings,
     ...analystRevisions,
   );
-  const sources = localizeSources(uniqueSources(provider.getSourceRefs?.() ?? []).filter((source) => sourceIds.includes(source.id)), language);
+  const sources = localizeSources(
+    uniqueSources([...(provider.getSourceRefs?.() ?? []), ...storedEstimateEvidence.sources])
+      .filter((source) => sourceIds.includes(source.id)),
+    language,
+  );
   if (issues.length > 0 && sources.length === 0 && !hasEvidence([
     company,
     calendar,
@@ -432,6 +443,33 @@ type NarrativeSection = "summaryBullets" | "keyDrivers" | "riskSignals" | "quali
 type GeneratedNarrative = Pick<EarningsAnalysis, NarrativeSection> & {
   claimSourceIds: Omit<EarningsClaimSourceIds, "oneLineVerdict">;
 };
+
+function mergeEstimateFallback(
+  current: EarningsEstimates | null,
+  stored: EarningsEstimates | null,
+): EarningsEstimates | null {
+  if (!current) return stored;
+  if (!stored) return current;
+  const revenueSourceIds = current.revenueEstimate != null
+    ? current.fieldSourceIds?.revenueEstimate ?? current.sourceIds
+    : stored.fieldSourceIds?.revenueEstimate ?? stored.sourceIds;
+  const epsSourceIds = current.epsEstimate != null
+    ? current.fieldSourceIds?.epsEstimate ?? current.sourceIds
+    : stored.fieldSourceIds?.epsEstimate ?? stored.sourceIds;
+  return {
+    ...stored,
+    ...current,
+    revenueEstimate: current.revenueEstimate ?? stored.revenueEstimate,
+    epsEstimate: current.epsEstimate ?? stored.epsEstimate,
+    sourceIds: [...new Set([...revenueSourceIds, ...epsSourceIds])],
+    fieldSourceIds: {
+      ...stored.fieldSourceIds,
+      ...current.fieldSourceIds,
+      revenueEstimate: revenueSourceIds,
+      epsEstimate: epsSourceIds,
+    },
+  };
+}
 
 function mergeGenerated<T extends GeneratedNarrative>(
   deterministic: T,

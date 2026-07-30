@@ -3,6 +3,7 @@ import type { EarningsCapabilityProvider } from "@/lib/capabilities/EarningsCapa
 import { addDaysIso, todayIso } from "@/lib/earnings/date";
 import { getCompanyProfiles } from "@/lib/earnings/companies";
 import { dataIssue, isQVerisCapabilityError } from "@/lib/earnings/providerIssues";
+import { saveCalendarSnapshot } from "@/lib/earnings/analysisStore";
 import { sourceIdsFrom, uniqueSources } from "@/lib/earnings/sourceRefs";
 import type { DataIssue, EarningsCalendarParams, EarningsEvent, SourceRef } from "@/lib/earnings/types";
 import { localEnv } from "@/lib/runtime/env";
@@ -47,6 +48,7 @@ async function uncachedEarningsCalendar(params: EarningsCalendarParams, provider
     for (const id of sourceIds.filter((sourceId) => !resolvedSourceIds.has(sourceId))) {
       issues.push(missingSourceIssue(id));
     }
+    if (issues.length === 0) await saveCalendarSnapshot(events, sources);
   } catch (error) {
     if (!isQVerisCapabilityError(error)) throw error;
     issues.push(dataIssue("earningsCalendar", "EARNINGS_CALENDAR_UNAVAILABLE", error));

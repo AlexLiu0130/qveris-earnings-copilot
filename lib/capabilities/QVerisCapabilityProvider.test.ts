@@ -131,20 +131,21 @@ test("calendar uses current QVeris tool and maps earningsCalendar rows", async (
 test("calendar supplements recent reported leaders from earnings history", async (t) => {
   const calls = stubFetch(t, (_url, init) => {
     const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
-    if (body.tool_id === "alphavantage.earnings.retrieve.v1.467a92c0") {
+    if (body.tool_id === "finnhub.stock.earnings.retrieve.v1.dda8afb8") {
       return jsonResponse({
         success: true,
         execution_id: "history-exec",
-        result: { data: { quarterlyEarnings: [{
-          fiscalDateEnding: "2026-06-30",
-          reportedDate: "2026-07-22",
-          reportedEPS: "2.31",
-          estimatedEPS: "2.18",
-        }] } },
+        result: { data: [{
+          period: "2026-06-30",
+          actual: 2.31,
+          estimate: 2.18,
+        }] },
       });
     }
-    if (body.tool_id === "alphavantage.earnings_estimates.retrieve.v1.467a92c0") {
-      return jsonResponse({ success: true, execution_id: "estimates-exec", result: { data: { estimates: [] } } });
+    if (body.tool_id === "twelvedata.earnings.retrieve.v1.e3dcf5a7") {
+      return jsonResponse({ success: true, execution_id: "dates-exec", result: { data: { earnings: [
+        { date: "2026-07-22", eps_actual: 2.31 },
+      ] } } });
     }
     return jsonResponse({ success: true, execution_id: "calendar-exec", result: { data: { earningsCalendar: [] } } });
   });
@@ -163,7 +164,7 @@ test("calendar supplements recent reported leaders from earnings history", async
     status: "reported",
     epsActual: 2.31,
     epsEstimate: 2.18,
-    sourceIds: ["GOOGL-qveris-get_historical_earnings"],
+    sourceIds: ["GOOGL-qveris-get_historical_earnings", "GOOGL-qveris-get_earnings_dates"],
   }]);
 });
 
@@ -343,33 +344,40 @@ test("calendar parses quoted CSV and filters the requested date range", async (t
   assert.equal(events[0].timing, "after_close");
 });
 
-test("earnings history and estimates use current inspected AlphaVantage tool ids", async (t) => {
+test("earnings history and estimates use the fixed inspected tools", async (t) => {
   const calls = stubFetch(t, () => {
     const toolId = calls.at(-1)?.body?.tool_id;
-    if (toolId === "alphavantage.earnings.retrieve.v1.467a92c0") {
+    if (toolId === "finnhub.stock.earnings.retrieve.v1.dda8afb8") {
       return jsonResponse({
         success: true,
         execution_id: "history-exec",
-        result: { data: { quarterlyEarnings: [{ fiscalDateEnding: "2099-06-30", reportedDate: "2099-07-20", reportedEPS: "1.2", estimatedEPS: "1.0" }] } },
+        result: { data: [{ period: "2099-06-30", actual: 1.2, estimate: 1.0 }] },
+      });
+    }
+    if (toolId === "twelvedata.earnings.retrieve.v1.e3dcf5a7") {
+      return jsonResponse({
+        success: true,
+        execution_id: "dates-exec",
+        result: { data: { earnings: [{ date: "2099-07-20", eps_actual: 1.2 }] } },
       });
     }
     return jsonResponse({
       success: true,
-      execution_id: "estimates-exec",
-      result: { data: { estimates: [{ horizon: "quarterly", date: "2099-06-30", eps_estimate_average: "1.0", revenue_estimate_average: "100" }] } },
+      execution_id: "consensus-exec",
+      result: { data: { earningsCalendar: [{ date: "2099-07-20", quarter: 2, year: 2099, epsEstimate: 1.0, revenueEstimate: 100 }] } },
     });
   });
 
   const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
   const history = await provider.getHistoricalEarnings("MU");
   assert.equal(history[0].epsActual, 1.2);
-  assert.equal(history[0].revenueEstimate, 100);
-  assert.deepEqual(history[0].fieldSourceIds?.revenueEstimate, ["MU-qveris-get_earnings_estimates"]);
+  assert.equal(history[0].reportDate, "2099-07-20");
   assert.equal((await provider.getEarningsEstimates("MU"))?.revenueEstimate, 100);
-  assert.equal(calls[0].body?.tool_id, "alphavantage.earnings.retrieve.v1.467a92c0");
-  assert.deepEqual(calls[0].body?.parameters, { symbol: "MU", function: "EARNINGS" });
-  assert.equal(calls[1].body?.tool_id, "alphavantage.earnings_estimates.retrieve.v1.467a92c0");
-  assert.deepEqual(calls[1].body?.parameters, { symbol: "MU", function: "EARNINGS_ESTIMATES" });
+  assert.equal(calls[0].body?.tool_id, "finnhub.stock.earnings.retrieve.v1.dda8afb8");
+  assert.deepEqual(calls[0].body?.parameters, { symbol: "MU", limit: 8 });
+  assert.equal(calls[1].body?.tool_id, "twelvedata.earnings.retrieve.v1.e3dcf5a7");
+  assert.deepEqual(calls[1].body?.parameters, { symbol: "MU", outputsize: 8, format: "JSON" });
+  assert.equal(calls[2].body?.tool_id, "finnhub.calendar.earnings.retrieve.v1.1552775d");
 });
 
 test("event estimates and historical eps reject wrong fiscal quarter identity", async (t) => {
@@ -415,17 +423,51 @@ test("event estimate id alone does not select a nearest dated estimate", async (
   assert.equal(await provider.getEarningsEstimates("MU", "MU-2099-07-20"), null);
 });
 
+test("event EPS is enriched with revenue consensus from the fixed calendar tool", async (t) => {
+  const calls = stubFetch(t, () => jsonResponse({
+    success: true,
+    execution_id: "consensus-exec",
+    result: { data: { earningsCalendar: [
+      { date: "2099-07-20", year: 2099, quarter: 3, epsEstimate: 1.22, revenueEstimate: 456 },
+    ] } },
+  }));
+  const event: EarningsEvent = {
+    id: "MU-2099-07-20",
+    ticker: "MU",
+    fiscalPeriod: "Q3",
+    fiscalYear: 2099,
+    reportDate: "2099-07-20",
+    timing: "after_close",
+    status: "reported",
+    epsEstimate: 1.23,
+    sourceIds: ["calendar"],
+  };
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
+  const estimates = await provider.getEarningsEstimates("MU", event);
+
+  assert.equal(estimates?.epsEstimate, 1.23);
+  assert.equal(estimates?.revenueEstimate, 456);
+  assert.deepEqual(estimates?.fieldSourceIds?.epsEstimate, ["calendar"]);
+  assert.deepEqual(estimates?.fieldSourceIds?.revenueEstimate, ["MU-qveris-get_earnings_estimates"]);
+  assert.equal(calls[0].body?.tool_id, "finnhub.calendar.earnings.retrieve.v1.1552775d");
+});
+
 test("event estimates and historical eps accept matching fiscal quarter identity", async (t) => {
   stubFetch(t, (_url, init) => {
     const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
-    if (body.tool_id === "alphavantage.earnings_estimates.retrieve.v1.467a92c0") {
-      return jsonResponse({ success: true, result: { data: { estimates: [
-        { horizon: "quarterly", date: "2099-06-30", fiscalYear: 2099, fiscalPeriod: "Q3", eps_estimate_average: "1.23", revenue_estimate_average: "456" },
+    if (body.tool_id === "finnhub.calendar.earnings.retrieve.v1.1552775d") {
+      return jsonResponse({ success: true, result: { data: { earningsCalendar: [
+        { date: "2099-07-20", year: 2099, quarter: 3, epsEstimate: 1.23, revenueEstimate: 456 },
       ] } } });
     }
-    if (body.tool_id === "alphavantage.earnings.retrieve.v1.467a92c0") {
-      return jsonResponse({ success: true, result: { data: { quarterlyEarnings: [
-        { fiscalDateEnding: "2099-06-30", reportedDate: "2099-07-20", reportedEPS: "1.23" },
+    if (body.tool_id === "finnhub.stock.earnings.retrieve.v1.dda8afb8") {
+      return jsonResponse({ success: true, result: { data: [
+        { period: "2099-06-30", year: 2099, quarter: 3, actual: 1.23, estimate: 1.0 },
+      ] } });
+    }
+    if (body.tool_id === "twelvedata.earnings.retrieve.v1.e3dcf5a7") {
+      return jsonResponse({ success: true, result: { data: { earnings: [
+        { date: "2099-07-20", eps_actual: 1.23 },
       ] } } });
     }
     if (body.tool_id === "financialmodelingprep.stable.incomestatement.retrieve.v1.dd6d583f") {
@@ -444,6 +486,26 @@ test("event estimates and historical eps accept matching fiscal quarter identity
   assert.equal(estimates?.epsEstimate, 1.23);
   const results = await provider.getEarningsResults("MU", event);
   assert.equal(results?.epsActual, 1.23);
+});
+
+test("historical prices use the fixed FMP dividend-adjusted tool", async (t) => {
+  const calls = stubFetch(t, () => jsonResponse({
+    success: true,
+    execution_id: "prices-exec",
+    result: { data: [
+      { symbol: "MU", date: "2099-07-21", adjOpen: 101, adjClose: 102, volume: 1234 },
+      { symbol: "MU", date: "2099-07-20", adjOpen: 99, adjClose: 100, volume: 1000 },
+    ] },
+  }));
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
+  const prices = await provider.getHistoricalPrices("MU", { from: "2099-07-20", to: "2099-07-21" });
+
+  assert.deepEqual(prices.map((row) => [row.date, row.open, row.close]), [
+    ["2099-07-20", 99, 100],
+    ["2099-07-21", 101, 102],
+  ]);
+  assert.equal(calls[0].body?.tool_id, "financialmodelingprep.stable.historicalpriceeod.dividendadjusted.retrieve.v1.1e0b27c9");
+  assert.deepEqual(calls[0].body?.parameters, { symbol: "MU", from: "2099-07-20", to: "2099-07-21" });
 });
 
 test("same-quarter financial statement revenue overrides an incompatible calendar basis", async (t) => {
