@@ -22,28 +22,32 @@ import type {
   StockQuote,
   TranscriptInsight,
 } from "@/lib/earnings/types";
-import { calendarSymbolsForUniverse, recentHistorySymbolsForUniverse } from "@/lib/earnings/universe";
+import { calendarSymbolsForUniverse, isCoreCalendarUniverse, recentHistorySymbolsForUniverse } from "@/lib/earnings/universe";
 import { filterRelevantNews, selectFiscalPeriod } from "@/lib/earnings/dataQuality";
 import { readQVerisFetchCache, writeQVerisFetchCache } from "@/lib/capabilities/qverisFetchCache";
+import { QVERIS_EARNINGS_TOOL_IDS } from "@/lib/capabilities/qverisEarningsTools";
 
 const DEFAULT_BASE_URL = "https://qveris.ai/api/v1";
-const CALENDAR_TOOL_ID = "alphavantage.earnings_calendar.list.v1.467a92c0";
-const INDEX_CONSTITUENTS_TOOL_ID = "mcp_gildata.indexconstituentstocks.v1";
-const SEC_COMPANY_SUBMISSIONS_TOOL_ID = "sec.company.submissions.v1";
-const PROFILE_TOOL_ID = "finnhub.company.profile.v2.get.v1";
-const MARKET_CAP_BATCH_TOOL_ID = "financialmodelingprep.stable.marketcapitalizationbatch.retrieve.v1.d2caebb9";
-const EARNINGS_HISTORY_TOOL_ID = "alphavantage.earnings.retrieve.v1.467a92c0";
-const ESTIMATES_TOOL_ID = "alphavantage.earnings_estimates.retrieve.v1.467a92c0";
-const QUOTE_TOOL_ID = "eodhd.live_v2.us_quote_delayed.retrieve.v1.f0e13d45";
-const HISTORICAL_PRICE_TOOL_ID = "alphavantage.time-series.daily-adjusted.v1";
-const NEWS_TOOL_ID = "qveris_finance.finance_news_aggregation_v1";
-const FILINGS_CIK_TOOL_ID = "financialmodelingprep.stable.secfilingscompanysearch.symbol.retrieve.v1.5cf7397d";
-const FILINGS_SEARCH_TOOL_ID = "financialmodelingprep.stable.secfilingssearch.cik.retrieve.v1.6c73a2ce";
-const TRANSCRIPT_TOOL_ID = "alphavantage.earnings_call_transcript.query.v1.467a92c0";
-const INCOME_STATEMENT_TOOL_ID = "financialmodelingprep.stable.incomestatement.retrieve.v1.dd6d583f";
-const BALANCE_SHEET_TOOL_ID = "financialmodelingprep.stable.balancesheetstatement.retrieve.v1.bce203b1";
-const CASH_FLOW_TOOL_ID = "financialmodelingprep.stable.cashflowstatement.retrieve.v1.dfeb9354";
-const REVENUE_SEGMENT_TOOL_ID = "financialmodelingprep.stable.revenueproductsegmentation.retrieve.v1.8faa287f";
+const {
+  calendar: CALENDAR_TOOL_ID,
+  consensusCalendar: CONSENSUS_CALENDAR_TOOL_ID,
+  earningsHistory: EARNINGS_HISTORY_TOOL_ID,
+  earningsDates: EARNINGS_DATES_TOOL_ID,
+  indexConstituents: INDEX_CONSTITUENTS_TOOL_ID,
+  secCompanySubmissions: SEC_COMPANY_SUBMISSIONS_TOOL_ID,
+  profile: PROFILE_TOOL_ID,
+  marketCapBatch: MARKET_CAP_BATCH_TOOL_ID,
+  quote: QUOTE_TOOL_ID,
+  historicalPrice: HISTORICAL_PRICE_TOOL_ID,
+  news: NEWS_TOOL_ID,
+  filingsCik: FILINGS_CIK_TOOL_ID,
+  filingsSearch: FILINGS_SEARCH_TOOL_ID,
+  transcript: TRANSCRIPT_TOOL_ID,
+  incomeStatement: INCOME_STATEMENT_TOOL_ID,
+  balanceSheet: BALANCE_SHEET_TOOL_ID,
+  cashFlow: CASH_FLOW_TOOL_ID,
+  revenueSegment: REVENUE_SEGMENT_TOOL_ID,
+} = QVERIS_EARNINGS_TOOL_IDS;
 const RAW_CACHE_NAMESPACE_VERSION = 2;
 const CORE_ADR_SUBMISSIONS = {
   ASML: { cik: "0000937966" },
@@ -71,6 +75,13 @@ const ASML_Q2_2026_IR_RESULTS = {
   epsActual: 7.59,
   guidanceText: "Q3 2026 total net sales are expected between €11.0 billion and €12.0 billion, with gross margin between 55% and 57%. Full-year 2026 total net sales are expected between €43 billion and €45 billion, with gross margin between 54% and 56%.",
   url: "https://www.asml.com/en/news/press-releases/2026/q2-2026-financial-results",
+} as const;
+const ASML_Q2_2026_IR_EVENT = {
+  ticker: "ASML",
+  reportDate: "2026-07-15",
+  fiscalPeriod: "Q2",
+  fiscalYear: 2026,
+  url: ASML_Q2_2026_IR_RESULTS.url,
 } as const;
 const MAX_FULL_CONTENT_BYTES = 2 * 1024 * 1024;
 const TRUSTED_FULL_CONTENT_HOSTS = new Set([
@@ -181,11 +192,14 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
             sourceIds: [sourceId],
           };
         });
-    const [adrSupplements, historySupplements] = await Promise.all([
+    const [adrSupplements, recentCalendarSupplements, historySupplements] = await Promise.all([
       this.getCoreAdrCalendarSupplements(params, allowedSymbols),
+      params.from <= today && isCoreCalendarUniverse(params.universe)
+        ? this.getRecentCalendarSupplements(params, allowedSymbols)
+        : Promise.resolve([]),
       params.from <= today ? this.getRecentHistoryCalendarSupplements(params) : Promise.resolve([]),
     ]);
-    return mergeCalendarEvents(primaryEvents, [...adrSupplements, ...historySupplements]);
+    return mergeCalendarEvents(primaryEvents, [...adrSupplements, ...recentCalendarSupplements, ...historySupplements]);
   }
 
   private async getCalendarUniverseSymbols(universe?: string) {
@@ -229,23 +243,81 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
     return results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
   }
 
+  private async getRecentCalendarSupplements(params: EarningsCalendarParams, allowedSymbols: string[] | null) {
+    const today = todayIso();
+    const from = params.from > addDaysIso(today, -30) ? params.from : addDaysIso(today, -30);
+    const to = params.to < today ? params.to : today;
+    if (from > to) return [];
+    const dates = isoDates(from, to);
+    const calls = await Promise.allSettled(dates.map((date) =>
+      this.execute(CONSENSUS_CALENDAR_TOOL_ID, { from: date, to: date })));
+    return calls.flatMap((result): EarningsEvent[] => {
+      if (result.status !== "fulfilled") return [];
+      const rows = calendarRows(result.value.data);
+      if (!rows) return [];
+      return rows.flatMap((row): EarningsEvent[] => {
+        const ticker = stringValue(row.symbol)?.toUpperCase();
+        const reportDate = stringValue(row.date);
+        if (!ticker || !reportDate || (allowedSymbols && !allowedSymbols.includes(ticker))) return [];
+        const sourceId = this.recordSource(
+          ticker,
+          "get_recent_earnings_calendar",
+          "QVeris recent earnings calendar",
+          CONSENSUS_CALENDAR_TOOL_ID,
+          result.value.executionId,
+        );
+        return [{
+          id: `${ticker}-${reportDate}`,
+          ticker,
+          reportDate,
+          fiscalPeriod: estimateFiscalQuarter(row) ? `Q${estimateFiscalQuarter(row)}` : undefined,
+          fiscalYear: numberValue(row.year),
+          timing: normalizeTiming(row.hour),
+          status: "reported",
+          revenueActual: numberValue(row.revenueActual),
+          revenueEstimate: numberValue(row.revenueEstimate),
+          epsActual: numberValue(row.epsActual),
+          epsEstimate: numberValue(row.epsEstimate),
+          sourceIds: [sourceId],
+        }];
+      });
+    });
+  }
+
   async getEarningsEstimates(ticker: string, event?: string | EarningsEvent | null): Promise<EarningsEstimates | null> {
-    const call = await this.execute(ESTIMATES_TOOL_ID, { symbol: ticker, function: "EARNINGS_ESTIMATES" });
-    const data = parsePossiblyTruncated(call.data);
-    const estimates = Array.isArray(asRecord(data)?.estimates) ? asRecord(data)!.estimates as Record<string, unknown>[] : [];
-    const selected = selectEstimate(estimates, event);
+    if (typeof event === "string") return null;
+    const eventEstimate = event && (event.revenueEstimate != null || event.epsEstimate != null)
+      ? {
+          revenueEstimate: event.revenueEstimate,
+          epsEstimate: event.epsEstimate,
+          sourceIds: event.sourceIds,
+        }
+      : null;
+    const call = eventEstimate?.revenueEstimate != null && eventEstimate.epsEstimate != null
+      ? null
+      : await this.getConsensusCalendarRow(ticker, event).catch(() => null);
+    const selected = call?.row;
     const officialTsm = typeof event === "object" ? tsmOfficialResults(ticker, event) : null;
-    if (!selected && !officialTsm) return null;
+    const historical = eventEstimate?.epsEstimate == null && numberValue(selected?.epsEstimate) == null && event
+      ? selectHistoricalPeriod(await this.getHistoricalEarnings(ticker, 4), event)
+      : null;
+    if (!eventEstimate && !selected && !historical && !officialTsm) return null;
     const sourceId = selected
-      ? this.recordSource(ticker, "get_earnings_estimates", "QVeris consensus estimates", ESTIMATES_TOOL_ID, call.executionId)
+      ? this.recordSource(ticker, "get_earnings_estimates", "QVeris consensus earnings calendar", CONSENSUS_CALENDAR_TOOL_ID, call?.executionId)
       : undefined;
     const officialSourceId = officialTsm
       ? this.recordSource(ticker, "get_official_quarterly_results", "TSMC official quarterly results", "tsmc.investor-relations.quarterly-results", undefined, { provider: "TSMC Investor Relations", url: officialTsm.url })
       : undefined;
-    const providerRevenue = numberValue(selected?.revenue_estimate_average);
+    const providerRevenue = eventEstimate?.revenueEstimate ?? numberValue(selected?.revenueEstimate);
     const revenueEstimate = providerRevenue ?? officialTsm?.revenueGuidanceMidpointTwd;
-    const epsEstimate = numberValue(selected?.eps_estimate_average);
-    const eventId = typeof event === "string" ? event : event?.id;
+    const epsEstimate = eventEstimate?.epsEstimate ?? numberValue(selected?.epsEstimate) ?? historical?.epsEstimate;
+    const eventId = event?.id;
+    const revenueSourceIds = eventEstimate?.revenueEstimate != null
+      ? eventEstimate.sourceIds
+      : numberValue(selected?.revenueEstimate) != null && sourceId ? [sourceId] : [];
+    const epsSourceIds = eventEstimate?.epsEstimate != null
+      ? eventEstimate.sourceIds
+      : numberValue(selected?.epsEstimate) != null && sourceId ? [sourceId] : historical?.sourceIds ?? [];
     return {
       ticker: ticker.toUpperCase(),
       eventId,
@@ -253,12 +325,10 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
       epsEstimate,
       epsCurrency: officialTsm ? "USD" : undefined,
       revenueEstimateBasis: providerRevenue != null ? "consensus" : "company_guidance_midpoint",
-      estimateCount: numberValue(selected?.eps_estimate_analyst_count) ?? numberValue(selected?.revenue_estimate_analyst_count),
-      sourceIds: [...new Set([sourceId, officialSourceId].filter(Boolean) as string[])],
+      sourceIds: [...new Set([...revenueSourceIds, ...epsSourceIds, officialSourceId].filter(Boolean) as string[])],
       fieldSourceIds: {
-        revenueEstimate: providerRevenue != null && sourceId ? [sourceId] : officialSourceId ? [officialSourceId] : undefined,
-        epsEstimate: epsEstimate != null && sourceId ? [sourceId] : undefined,
-        estimateCount: sourceId ? [sourceId] : undefined,
+        revenueEstimate: providerRevenue != null ? revenueSourceIds : officialSourceId ? [officialSourceId] : undefined,
+        epsEstimate: epsEstimate != null ? epsSourceIds : undefined,
       },
     };
   }
@@ -323,41 +393,48 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
   }
 
   async getHistoricalEarnings(ticker: string, limit = 8): Promise<HistoricalEarnings[]> {
-    const [call, estimateCall] = await Promise.all([
-      this.execute(EARNINGS_HISTORY_TOOL_ID, { symbol: ticker, function: "EARNINGS" }),
-      this.execute(ESTIMATES_TOOL_ID, { symbol: ticker, function: "EARNINGS_ESTIMATES" }).catch(() => null),
+    const [call, dateCall] = await Promise.all([
+      this.execute(EARNINGS_HISTORY_TOOL_ID, { symbol: ticker, limit }),
+      this.execute(EARNINGS_DATES_TOOL_ID, { symbol: ticker, outputsize: limit, format: "JSON" }).catch(() => null),
     ]);
-    const data = parsePossiblyTruncated(call.data);
-    const rows = Array.isArray(asRecord(data)?.quarterlyEarnings) ? asRecord(data)!.quarterlyEarnings as Record<string, unknown>[] : [];
+    const rows = arrayRecords(call.data);
     const sourceId = this.recordSource(ticker, "get_historical_earnings", "QVeris earnings history", EARNINGS_HISTORY_TOOL_ID, call.executionId);
-    const estimateRows = Array.isArray(asRecord(parsePossiblyTruncated(estimateCall?.data))?.estimates)
-      ? asRecord(parsePossiblyTruncated(estimateCall?.data))!.estimates as Record<string, unknown>[]
-      : [];
-    const estimatesByDate = new Map(estimateRows.map((row) => [stringValue(row.date), row]));
-    const estimateSourceId = estimateCall
-      ? this.recordSource(ticker, "get_earnings_estimates", "QVeris consensus estimates", ESTIMATES_TOOL_ID, estimateCall.executionId)
+    const dateRows = arrayRecords(asRecord(dateCall?.data)?.earnings)
+      .filter((row) => numberValue(row.eps_actual) != null);
+    const dateSourceId = dateCall
+      ? this.recordSource(ticker, "get_earnings_dates", "QVeris earnings report dates", EARNINGS_DATES_TOOL_ID, dateCall.executionId)
       : undefined;
     return rows.slice(0, limit).map((row, index) => {
-      const fiscalPeriod = stringValue(row.fiscalDateEnding);
-      const estimate = estimatesByDate.get(fiscalPeriod);
-      const revenueEstimate = numberValue(estimate?.revenue_estimate_average);
-      const epsActual = numberValue(row.reportedEPS);
-      const epsEstimate = numberValue(row.estimatedEPS) ?? numberValue(estimate?.eps_estimate_average);
+      const fiscalPeriod = stringValue(row.period);
+      const reportDate = closestReportDate(fiscalPeriod, dateRows) ?? fiscalPeriod ?? todayIso();
+      const epsActual = numberValue(row.actual);
+      const epsEstimate = numberValue(row.estimate);
       return {
         eventId: `${ticker.toUpperCase()}-earnings-${fiscalPeriod ?? index}`,
         fiscalPeriod,
-        reportDate: stringValue(row.reportedDate) ?? fiscalPeriod ?? todayIso(),
-        revenueEstimate,
+        reportDate,
         epsActual,
         epsEstimate,
-        sourceIds: [...new Set([sourceId, revenueEstimate != null ? estimateSourceId : undefined].filter(Boolean) as string[])],
+        sourceIds: [...new Set([sourceId, reportDate !== fiscalPeriod ? dateSourceId : undefined].filter(Boolean) as string[])],
         fieldSourceIds: {
-          revenueEstimate: revenueEstimate != null && estimateSourceId ? [estimateSourceId] : undefined,
           epsActual: epsActual != null ? [sourceId] : undefined,
           epsEstimate: epsEstimate != null ? [sourceId] : undefined,
         },
       };
     });
+  }
+
+  private async getConsensusCalendarRow(ticker: string, event?: EarningsEvent | null) {
+    const from = event?.reportDate ?? addDaysIso(todayIso(), -7);
+    const to = event?.reportDate ?? addDaysIso(todayIso(), 120);
+    const call = await this.execute(CONSENSUS_CALENDAR_TOOL_ID, { from, to, symbol: ticker });
+    const rows = calendarRows(call.data) ?? [];
+    const row = rows.find((item) => !event || (
+      stringValue(item.date) === event.reportDate
+      && (!event.fiscalYear || numberValue(item.year) === event.fiscalYear)
+      && (!event.fiscalPeriod || estimateFiscalQuarter(item) === fiscalQuarter(event.fiscalPeriod))
+    ));
+    return row ? { row, executionId: call.executionId } : null;
   }
 
   async getStockQuote(ticker: string): Promise<StockQuote | null> {
@@ -380,28 +457,20 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
   async getHistoricalPrices(ticker: string, params: HistoricalPriceParams): Promise<PriceBar[]> {
     const call = await this.execute(HISTORICAL_PRICE_TOOL_ID, {
       symbol: ticker,
-      function: "TIME_SERIES_DAILY_ADJUSTED",
-      outputsize: "compact",
-      datatype: "json",
+      from: params.from,
+      to: params.to,
     });
-    const data = asRecord(parsePossiblyTruncated(call.data));
-    const series = asRecord(data?.["Time Series (Daily)"]);
-    if (!series) return [];
     const sourceId = this.recordSource(ticker, "get_historical_prices", "QVeris adjusted daily prices", HISTORICAL_PRICE_TOOL_ID, call.executionId);
-    return Object.entries(series)
-      .filter(([date]) => date >= params.from && date <= params.to)
-      .flatMap(([date, value]): PriceBar[] => {
-        const row = asRecord(value);
-        const rawClose = numberValue(row?.["4. close"]);
-        const adjustedClose = numberValue(row?.["5. adjusted close"]) ?? rawClose;
-        if (adjustedClose == null) return [];
-        const adjustment = rawClose ? adjustedClose / rawClose : 1;
-        const rawOpen = numberValue(row?.["1. open"]);
+    return arrayRecords(call.data)
+      .flatMap((row): PriceBar[] => {
+        const date = stringValue(row.date);
+        const close = numberValue(row.adjClose);
+        if (!date || close == null) return [];
         return [{
           date,
-          open: rawOpen == null ? undefined : rawOpen * adjustment,
-          close: adjustedClose,
-          volume: numberValue(row?.["6. volume"]),
+          open: numberValue(row.adjOpen),
+          close,
+          volume: numberValue(row.volume),
           sourceIds: [sourceId],
         }];
       })
@@ -576,6 +645,7 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
         console.error("QVeris ADR submissions supplement failed", symbol);
       }
     }
+    if (symbols.includes("ASML")) events.push(...this.getAsmlOfficialCalendarEvents(params));
     if (symbols.includes("TSM")) events.push(...this.getTsmOfficialCalendarEvents(params));
     return events;
   }
@@ -628,6 +698,28 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
       fiscalPeriod: TSM_Q2_2026_IR_EVENT.fiscalPeriod,
       fiscalYear: TSM_Q2_2026_IR_EVENT.fiscalYear,
       reportDate: TSM_Q2_2026_IR_EVENT.reportDate,
+      timing: "before_open" as const,
+      status: "reported" as const,
+      sourceIds: [sourceId],
+    }];
+  }
+
+  private getAsmlOfficialCalendarEvents(params: EarningsCalendarParams) {
+    if (ASML_Q2_2026_IR_EVENT.reportDate < params.from || ASML_Q2_2026_IR_EVENT.reportDate > params.to) return [];
+    const sourceId = this.recordSource(
+      "ASML",
+      "official_ir_calendar",
+      "ASML official IR earnings calendar",
+      "asml.investor-relations.quarterly-results",
+      undefined,
+      { provider: "ASML Investor Relations", url: ASML_Q2_2026_IR_EVENT.url },
+    );
+    return [{
+      id: `ASML-${ASML_Q2_2026_IR_EVENT.reportDate}`,
+      ticker: "ASML",
+      reportDate: ASML_Q2_2026_IR_EVENT.reportDate,
+      fiscalPeriod: ASML_Q2_2026_IR_EVENT.fiscalPeriod,
+      fiscalYear: ASML_Q2_2026_IR_EVENT.fiscalYear,
       timing: "before_open" as const,
       status: "reported" as const,
       sourceIds: [sourceId],
@@ -724,6 +816,12 @@ function parseIsoDate(value: string) {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
   return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+}
+
+function isoDates(from: string, to: string) {
+  const dates: string[] = [];
+  for (let date = from; date <= to; date = addDaysIso(date, 1)) dates.push(date);
+  return dates;
 }
 
 function calendarRows(value: unknown): Record<string, unknown>[] | null {
@@ -1067,6 +1165,20 @@ function historicalFiscalYearMatches(row: HistoricalEarnings, event: EarningsEve
 function yearFromIsoDate(value?: string) {
   const match = value?.match(/^(\d{4})-\d{2}-\d{2}$/);
   return match ? Number(match[1]) : undefined;
+}
+
+function closestReportDate(fiscalPeriod: string | undefined, rows: Record<string, unknown>[]) {
+  const fiscal = fiscalPeriod ? parseIsoDate(fiscalPeriod) : null;
+  if (!fiscal) return undefined;
+  return rows
+    .flatMap((row) => {
+      const value = stringValue(row.date);
+      const date = value ? parseIsoDate(value) : null;
+      if (!value || !date) return [];
+      const distance = Math.abs(date.getTime() - fiscal.getTime());
+      return distance <= 75 * 86_400_000 ? [{ value, distance }] : [];
+    })
+    .sort((a, b) => a.distance - b.distance)[0]?.value;
 }
 
 function fiscalQuarter(value?: string) {
