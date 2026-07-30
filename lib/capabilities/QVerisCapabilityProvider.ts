@@ -22,7 +22,7 @@ import type {
   StockQuote,
   TranscriptInsight,
 } from "@/lib/earnings/types";
-import { calendarSymbolsForUniverse, recentHistorySymbolsForUniverse } from "@/lib/earnings/universe";
+import { calendarSymbolsForUniverse, isCoreCalendarUniverse, recentHistorySymbolsForUniverse } from "@/lib/earnings/universe";
 import { filterRelevantNews, selectFiscalPeriod } from "@/lib/earnings/dataQuality";
 import { readQVerisFetchCache, writeQVerisFetchCache } from "@/lib/capabilities/qverisFetchCache";
 import { QVERIS_EARNINGS_TOOL_IDS } from "@/lib/capabilities/qverisEarningsTools";
@@ -75,6 +75,13 @@ const ASML_Q2_2026_IR_RESULTS = {
   epsActual: 7.59,
   guidanceText: "Q3 2026 total net sales are expected between €11.0 billion and €12.0 billion, with gross margin between 55% and 57%. Full-year 2026 total net sales are expected between €43 billion and €45 billion, with gross margin between 54% and 56%.",
   url: "https://www.asml.com/en/news/press-releases/2026/q2-2026-financial-results",
+} as const;
+const ASML_Q2_2026_IR_EVENT = {
+  ticker: "ASML",
+  reportDate: "2026-07-15",
+  fiscalPeriod: "Q2",
+  fiscalYear: 2026,
+  url: ASML_Q2_2026_IR_RESULTS.url,
 } as const;
 const MAX_FULL_CONTENT_BYTES = 2 * 1024 * 1024;
 const TRUSTED_FULL_CONTENT_HOSTS = new Set([
@@ -185,11 +192,14 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
             sourceIds: [sourceId],
           };
         });
-    const [adrSupplements, historySupplements] = await Promise.all([
+    const [adrSupplements, recentCalendarSupplements, historySupplements] = await Promise.all([
       this.getCoreAdrCalendarSupplements(params, allowedSymbols),
+      params.from <= today && isCoreCalendarUniverse(params.universe)
+        ? this.getRecentCalendarSupplements(params, allowedSymbols)
+        : Promise.resolve([]),
       params.from <= today ? this.getRecentHistoryCalendarSupplements(params) : Promise.resolve([]),
     ]);
-    return mergeCalendarEvents(primaryEvents, [...adrSupplements, ...historySupplements]);
+    return mergeCalendarEvents(primaryEvents, [...adrSupplements, ...recentCalendarSupplements, ...historySupplements]);
   }
 
   private async getCalendarUniverseSymbols(universe?: string) {
@@ -231,6 +241,50 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
       }),
     );
     return results.flatMap((result) => result.status === "fulfilled" ? result.value : []);
+  }
+
+  private async getRecentCalendarSupplements(params: EarningsCalendarParams, allowedSymbols: string[] | null) {
+    const today = todayIso();
+    const from = params.from > addDaysIso(today, -30) ? params.from : addDaysIso(today, -30);
+    const to = params.to < today ? params.to : today;
+    if (from > to) return [];
+    const dates = isoDates(from, to);
+    const calls = [];
+    for (let index = 0; index < dates.length; index += 8) {
+      calls.push(...await Promise.allSettled(dates.slice(index, index + 8).map((date) =>
+        this.execute(CONSENSUS_CALENDAR_TOOL_ID, { from: date, to: date }))));
+    }
+    return calls.flatMap((result): EarningsEvent[] => {
+      if (result.status !== "fulfilled") return [];
+      const rows = calendarRows(result.value.data);
+      if (!rows) return [];
+      return rows.flatMap((row): EarningsEvent[] => {
+        const ticker = stringValue(row.symbol)?.toUpperCase();
+        const reportDate = stringValue(row.date);
+        if (!ticker || !reportDate || (allowedSymbols && !allowedSymbols.includes(ticker))) return [];
+        const sourceId = this.recordSource(
+          ticker,
+          "get_recent_earnings_calendar",
+          "QVeris recent earnings calendar",
+          CONSENSUS_CALENDAR_TOOL_ID,
+          result.value.executionId,
+        );
+        return [{
+          id: `${ticker}-${reportDate}`,
+          ticker,
+          reportDate,
+          fiscalPeriod: estimateFiscalQuarter(row) ? `Q${estimateFiscalQuarter(row)}` : undefined,
+          fiscalYear: numberValue(row.year),
+          timing: normalizeTiming(row.hour),
+          status: "reported",
+          revenueActual: numberValue(row.revenueActual),
+          revenueEstimate: numberValue(row.revenueEstimate),
+          epsActual: numberValue(row.epsActual),
+          epsEstimate: numberValue(row.epsEstimate),
+          sourceIds: [sourceId],
+        }];
+      });
+    });
   }
 
   async getEarningsEstimates(ticker: string, event?: string | EarningsEvent | null): Promise<EarningsEstimates | null> {
@@ -594,6 +648,7 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
         console.error("QVeris ADR submissions supplement failed", symbol);
       }
     }
+    if (symbols.includes("ASML")) events.push(...this.getAsmlOfficialCalendarEvents(params));
     if (symbols.includes("TSM")) events.push(...this.getTsmOfficialCalendarEvents(params));
     return events;
   }
@@ -646,6 +701,28 @@ export class QVerisCapabilityProvider implements EarningsCapabilityProvider {
       fiscalPeriod: TSM_Q2_2026_IR_EVENT.fiscalPeriod,
       fiscalYear: TSM_Q2_2026_IR_EVENT.fiscalYear,
       reportDate: TSM_Q2_2026_IR_EVENT.reportDate,
+      timing: "before_open" as const,
+      status: "reported" as const,
+      sourceIds: [sourceId],
+    }];
+  }
+
+  private getAsmlOfficialCalendarEvents(params: EarningsCalendarParams) {
+    if (ASML_Q2_2026_IR_EVENT.reportDate < params.from || ASML_Q2_2026_IR_EVENT.reportDate > params.to) return [];
+    const sourceId = this.recordSource(
+      "ASML",
+      "official_ir_calendar",
+      "ASML official IR earnings calendar",
+      "asml.investor-relations.quarterly-results",
+      undefined,
+      { provider: "ASML Investor Relations", url: ASML_Q2_2026_IR_EVENT.url },
+    );
+    return [{
+      id: `ASML-${ASML_Q2_2026_IR_EVENT.reportDate}`,
+      ticker: "ASML",
+      reportDate: ASML_Q2_2026_IR_EVENT.reportDate,
+      fiscalPeriod: ASML_Q2_2026_IR_EVENT.fiscalPeriod,
+      fiscalYear: ASML_Q2_2026_IR_EVENT.fiscalYear,
       timing: "before_open" as const,
       status: "reported" as const,
       sourceIds: [sourceId],
@@ -742,6 +819,12 @@ function parseIsoDate(value: string) {
   const match = value.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!match) return null;
   return new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+}
+
+function isoDates(from: string, to: string) {
+  const dates: string[] = [];
+  for (let date = from; date <= to; date = addDaysIso(date, 1)) dates.push(date);
+  return dates;
 }
 
 function calendarRows(value: unknown): Record<string, unknown>[] | null {

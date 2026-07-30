@@ -59,3 +59,13 @@ npm run archive:qveris:estimates
 ```
 
 任务使用本表固定 Tool ID 抓取未来 21 天核心覆盖事件，将非空营收/EPS 预期按版本写入 `event_facts`，并保存 `source_refs` 与原始 QVeris 执行血缘。后续空响应不会覆盖已经保存的事实。可用 `EARNINGS_ARCHIVE_DAYS=1..120` 调整窗口。
+
+历史区间一次性回填：
+
+```bash
+EARNINGS_ARCHIVE_FROM=2026-07-01 \
+EARNINGS_ARCHIVE_TO=2026-07-31 \
+npm run archive:qveris:estimates
+```
+
+日历查询会合并数据库已存事件与实时事件。最近 30 天的已发布事件按日期调用固定 Finnhub Earnings Calendar 补齐；繁忙日响应截断时，再由重点公司历史 EPS 与官方 ADR 财报页兜底。

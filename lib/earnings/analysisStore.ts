@@ -59,6 +59,26 @@ interface StoredEstimateRow {
   retrieved_at: string | null;
 }
 
+interface StoredCalendarRow extends Omit<StoredEstimateRow, "metric" | "value_number"> {
+  metric: "calendar_presence" | "revenue_actual" | "revenue_estimate" | "eps_actual" | "eps_estimate";
+  value_number: number | null;
+  event_id: string;
+  canonical_key: string;
+  ticker: string;
+  fiscal_year: number | null;
+  fiscal_period: string | null;
+  report_date: string;
+  timing: EarningsEvent["timing"];
+  status: EarningsEvent["status"];
+  event_version: number;
+}
+
+interface StoredCalendarGroup {
+  row: StoredCalendarRow;
+  facts: Map<string, StoredCalendarRow>;
+  sources: Map<string, SourceRef>;
+}
+
 interface StoredSourceRef {
   sourceRefId: string;
   rawFetchId: string | null;
@@ -124,6 +144,7 @@ export async function saveCalendarSnapshot(events: EarningsEvent[], sources: Sou
         : event.reportDate;
       const sourceRef = factSourceRef(storedSources, undefined, event.sourceIds);
       const facts = [
+        textFact("calendar_presence", "quality", event.status, sourceRef),
         numberFact("revenue_actual", "actual", event.revenueActual, "currency", null, sourceRef),
         numberFact("revenue_estimate", "estimate", event.revenueEstimate, "currency", null, sourceRef),
         numberFact("eps_actual", "actual", event.epsActual, "currency_per_share", null, sourceRef),
@@ -188,6 +209,72 @@ export async function getStoredEventEstimates(event: EarningsEvent): Promise<{ e
         : new D1PersistenceError("D1 stored estimates read failed", "D1_READ_FAILED", error);
     }
     return { estimates: null, sources: [] };
+  }
+}
+
+export async function getStoredCalendarSnapshot(from: string, to: string): Promise<{ events: EarningsEvent[]; sources: SourceRef[] }> {
+  const db = getD1();
+  if (!db) return { events: [], sources: [] };
+
+  try {
+    const { results = [] } = await db.prepare(
+      `SELECT e.event_id, e.canonical_key, e.ticker, e.fiscal_year, e.fiscal_period,
+              e.report_date, e.timing, e.status, e.event_version,
+              ef.metric, ef.value_number, ef.fact_version,
+              sr.source_ref_id, sr.provider, sr.capability, sr.execution_id,
+              sr.title, sr.url, sr.published_at, sr.retrieved_at
+       FROM earnings_events e
+       LEFT JOIN event_facts ef
+         ON ef.event_id = e.event_id
+        AND ef.metric IN ('calendar_presence', 'revenue_actual', 'revenue_estimate', 'eps_actual', 'eps_estimate')
+       LEFT JOIN source_refs sr ON sr.source_ref_id = ef.source_ref_id
+       WHERE e.report_date >= ? AND e.report_date <= ?
+       ORDER BY e.event_version DESC, ef.fact_version DESC`,
+    ).bind(from, to).all<StoredCalendarRow>();
+    const grouped = new Map<string, StoredCalendarGroup>();
+    for (const row of results) {
+      let group = grouped.get(row.event_id);
+      if (!group) {
+        group = { row, facts: new Map(), sources: new Map() };
+        grouped.set(row.event_id, group);
+      }
+      if (row.metric && !group.facts.has(row.metric)) group.facts.set(row.metric, row);
+      if (row.source_ref_id) group.sources.set(row.source_ref_id, storedSource(row));
+    }
+    const latest = new Map<string, StoredCalendarGroup>();
+    for (const group of grouped.values()) {
+      const current = latest.get(group.row.canonical_key);
+      if (!current || group.row.event_version > current.row.event_version) latest.set(group.row.canonical_key, group);
+    }
+    const events: EarningsEvent[] = [];
+    const sources = new Map<string, SourceRef>();
+    for (const group of latest.values()) {
+      const sourceIds = [...group.sources.keys()];
+      if (!sourceIds.length) continue;
+      for (const [id, source] of group.sources) sources.set(id, source);
+      events.push({
+        id: group.row.event_id,
+        ticker: group.row.ticker,
+        fiscalYear: group.row.fiscal_year ?? undefined,
+        fiscalPeriod: group.row.fiscal_period ?? undefined,
+        reportDate: group.row.report_date,
+        timing: group.row.timing,
+        status: group.row.status,
+        revenueActual: group.facts.get("revenue_actual")?.value_number ?? undefined,
+        revenueEstimate: group.facts.get("revenue_estimate")?.value_number ?? undefined,
+        epsActual: group.facts.get("eps_actual")?.value_number ?? undefined,
+        epsEstimate: group.facts.get("eps_estimate")?.value_number ?? undefined,
+        sourceIds,
+      });
+    }
+    return { events, sources: [...sources.values()] };
+  } catch (error) {
+    if (isProductionRuntime()) {
+      throw isD1PersistenceError(error)
+        ? error
+        : new D1PersistenceError("D1 stored calendar read failed", "D1_READ_FAILED", error);
+    }
+    return { events: [], sources: [] };
   }
 }
 
@@ -702,7 +789,7 @@ function sourceStorageId(source: EarningsAnalysis["sources"][number]) {
   return `${source.id}:${source.executionId ?? source.retrievedAt}`;
 }
 
-function storedSource(row: StoredEstimateRow): SourceRef {
+function storedSource(row: Omit<StoredEstimateRow, "metric" | "value_number" | "fact_version">): SourceRef {
   return {
     id: row.source_ref_id!,
     title: row.title ?? "Stored earnings estimate",

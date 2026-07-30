@@ -3,7 +3,7 @@ import type { EarningsCapabilityProvider } from "@/lib/capabilities/EarningsCapa
 import { addDaysIso, todayIso } from "@/lib/earnings/date";
 import { getCompanyProfiles } from "@/lib/earnings/companies";
 import { dataIssue, isQVerisCapabilityError } from "@/lib/earnings/providerIssues";
-import { saveCalendarSnapshot } from "@/lib/earnings/analysisStore";
+import { getStoredCalendarSnapshot, saveCalendarSnapshot } from "@/lib/earnings/analysisStore";
 import { sourceIdsFrom, uniqueSources } from "@/lib/earnings/sourceRefs";
 import type { DataIssue, EarningsCalendarParams, EarningsEvent, SourceRef } from "@/lib/earnings/types";
 import { localEnv } from "@/lib/runtime/env";
@@ -28,8 +28,9 @@ export async function getEarningsCalendar(params: Partial<EarningsCalendarParams
 async function uncachedEarningsCalendar(params: EarningsCalendarParams, provider = getEarningsProvider()) {
   const from = params.from ?? todayIso();
   const to = params.to ?? addDaysIso(from, 14);
-  let events: EarningsEvent[] = [];
-  let sources: SourceRef[] = [];
+  const stored = await getStoredCalendarSnapshot(from, to);
+  let events = await filterAndSort(stored.events, params);
+  let sources = stored.sources.filter((source) => sourceIdsFrom(...events).includes(source.id));
   const issues: DataIssue[] = [];
   try {
     const rawEvents = await provider.getEarningsCalendar({
@@ -41,9 +42,10 @@ async function uncachedEarningsCalendar(params: EarningsCalendarParams, provider
       timing: params.timing,
       minMarketCap: params.minMarketCap,
     });
-    events = await filterAndSort(rawEvents, params);
+    events = await filterAndSort(mergeEvents(stored.events, rawEvents), params);
     const sourceIds = sourceIdsFrom(...events);
-    sources = uniqueSources(provider.getSourceRefs?.() ?? []).filter((source) => sourceIds.includes(source.id));
+    sources = uniqueSources([...stored.sources, ...(provider.getSourceRefs?.() ?? [])])
+      .filter((source) => sourceIds.includes(source.id));
     const resolvedSourceIds = new Set(sources.map((source) => source.id));
     for (const id of sourceIds.filter((sourceId) => !resolvedSourceIds.has(sourceId))) {
       issues.push(missingSourceIssue(id));
@@ -112,6 +114,26 @@ async function filterAndSort(events: EarningsEvent[], params: EarningsCalendarPa
 
 function sortEvents(events: EarningsEvent[]) {
   return [...events].sort((a, b) => a.reportDate.localeCompare(b.reportDate) || a.ticker.localeCompare(b.ticker));
+}
+
+function mergeEvents(stored: EarningsEvent[], current: EarningsEvent[]) {
+  const merged = new Map(stored.map((event) => [`${event.ticker}:${event.reportDate}`, event]));
+  for (const event of current) {
+    const key = `${event.ticker}:${event.reportDate}`;
+    const previous = merged.get(key);
+    merged.set(key, previous ? {
+      ...previous,
+      ...event,
+      timing: event.timing === "unknown" ? previous.timing : event.timing,
+      status: event.status === "reported" || previous.status === "reported" ? "reported" : event.status,
+      revenueActual: event.revenueActual ?? previous.revenueActual,
+      revenueEstimate: event.revenueEstimate ?? previous.revenueEstimate,
+      epsActual: event.epsActual ?? previous.epsActual,
+      epsEstimate: event.epsEstimate ?? previous.epsEstimate,
+      sourceIds: [...new Set([...previous.sourceIds, ...event.sourceIds])],
+    } : event);
+  }
+  return [...merged.values()];
 }
 
 function cacheTtlMs() {

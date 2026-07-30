@@ -46,6 +46,7 @@ const SP500_AND_NASDAQ_LEADERS = [
   "VRT",
   "DELL",
   "GE",
+  "LMT",
   "LLY",
   "JPM",
   "V",
@@ -103,7 +104,7 @@ const HOT_SMALL_AND_MID_CAPS = [
 ] as const;
 
 const CORE_UNIVERSE = [...SP500_AND_NASDAQ_LEADERS, ...HOT_SMALL_AND_MID_CAPS] as const;
-const RECENT_HISTORY_SUPPLEMENTS = ["GOOGL", "GOOG", "NFLX", "TSLA", "JPM", "INTC", "IBM"] as const;
+const RECENT_HISTORY_SUPPLEMENTS = ["GOOGL", "GOOG", "NFLX", "TSLA", "JPM", "INTC", "IBM", "LMT"] as const;
 
 export function calendarSymbolsForUniverse(universe?: string): string[] | null {
   const normalized = normalizeUniverse(universe);

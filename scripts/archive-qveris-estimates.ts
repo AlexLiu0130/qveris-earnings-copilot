@@ -13,11 +13,14 @@ async function main() {
   const days = Number(process.env.EARNINGS_ARCHIVE_DAYS ?? 21);
   if (!Number.isInteger(days) || days < 1 || days > 120) throw new Error("EARNINGS_ARCHIVE_DAYS must be an integer from 1 to 120");
   if (!getD1()) throw new Error("Persistent D1 or SQLite storage is required");
+  const from = process.env.EARNINGS_ARCHIVE_FROM ?? todayIso();
+  const to = process.env.EARNINGS_ARCHIVE_TO ?? addDaysIso(from, days);
+  if (!isIsoDate(from) || !isIsoDate(to) || from > to) throw new Error("EARNINGS_ARCHIVE_FROM and EARNINGS_ARCHIVE_TO must be an ordered YYYY-MM-DD range");
 
   const provider = new QVerisCapabilityProvider();
   const events = await provider.getEarningsCalendar({
-    from: todayIso(),
-    to: addDaysIso(todayIso(), days),
+    from,
+    to,
     universe: process.env.EARNINGS_UNIVERSE ?? "core",
   });
 
@@ -43,8 +46,8 @@ async function main() {
   await saveCalendarSnapshot(archived, sources);
 
   console.log(JSON.stringify({
-    from: todayIso(),
-    to: addDaysIso(todayIso(), days),
+    from,
+    to,
     events: archived.length,
     revenueEstimates: archived.filter((event) => event.revenueEstimate != null).length,
     epsEstimates: archived.filter((event) => event.epsEstimate != null).length,
@@ -52,4 +55,8 @@ async function main() {
     missingEps: archived.filter((event) => event.epsEstimate == null).map((event) => event.ticker),
     failures,
   }));
+}
+
+function isIsoDate(value: string) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`));
 }

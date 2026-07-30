@@ -198,6 +198,42 @@ test("core calendar uses live index constituents instead of the leader shortlist
   assert.deepEqual(events.map((event) => event.ticker), ["LMT"]);
 });
 
+test("core calendar supplements recent reported events by date", async (t) => {
+  const calls = stubFetch(t, (_url, init) => {
+    const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};
+    if (body.tool_id === "mcp_gildata.indexconstituentstocks.v1") {
+      return jsonResponse({
+        success: true,
+        execution_id: "index-exec",
+        result: { data: { results: [{ table_markdown: "|指数代码|指数简称|股票代码|股票简称|\n|---|---|---|---|\n|SPX.GI|标普500指数|JPM.NY|摩根大通|" }] } },
+      });
+    }
+    if (body.tool_id === "finnhub.calendar.earnings.retrieve.v1.1552775d") {
+      return jsonResponse({
+        success: true,
+        execution_id: "recent-calendar-exec",
+        result: { data: { earningsCalendar: [{
+          symbol: "JPM",
+          date: "2026-07-14",
+          hour: "bmo",
+          quarter: 2,
+          year: 2026,
+          epsActual: 5.24,
+          epsEstimate: 4.85,
+        }] } },
+      });
+    }
+    return jsonResponse({ success: true, execution_id: "empty-exec", result: { data: { earningsCalendar: [] } } });
+  });
+
+  const provider = new QVerisCapabilityProvider({ baseUrl: "https://qveris.test/api", apiKey: "key" });
+  const events = await provider.getEarningsCalendar({ from: "2026-07-14", to: "2026-07-14", universe: "sp500" });
+
+  assert.equal(events.some((event) => event.ticker === "JPM" && event.reportDate === "2026-07-14"), true);
+  assert.equal(events.find((event) => event.ticker === "JPM")?.epsActual, 5.24);
+  assert.equal(calls.some((call) => call.body?.tool_id === "finnhub.calendar.earnings.retrieve.v1.1552775d"), true);
+});
+
 test("calendar supplements ASML quarterly 6-K from SEC submissions", async (t) => {
   const calls = stubFetch(t, (_url, init) => {
     const body = typeof init?.body === "string" ? JSON.parse(init.body) as Record<string, unknown> : {};

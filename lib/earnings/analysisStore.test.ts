@@ -6,6 +6,7 @@ import {
   __clearAnalysisStoreForTests,
   getAnalysisById,
   getCachedAnalysis,
+  getStoredCalendarSnapshot,
   getStoredEventEstimates,
   listAnalysesByTicker,
   saveAnalysis,
@@ -146,6 +147,13 @@ test("calendar snapshots preserve non-empty estimates when a later response omit
   assert.equal(stored.estimates?.revenueEstimate, 36_923_508_824);
   assert.equal(stored.estimates?.epsEstimate, 21.4019);
   assert.equal(stored.sources[0]?.provider, "QVeris");
+  const calendar = await getStoredCalendarSnapshot("2026-06-01", "2026-06-30");
+  assert.equal(calendar.events.length, 1);
+  assert.equal(calendar.events[0]?.ticker, "MU");
+  assert.equal(calendar.events[0]?.status, "reported");
+  assert.equal(calendar.events[0]?.revenueEstimate, 36_923_508_824);
+  assert.equal(calendar.events[0]?.epsEstimate, 21.4019);
+  assert.equal(calendar.sources.length, 1);
 });
 
 test("same fiscal quarter date revisions persist as separate event versions", async () => {
@@ -818,6 +826,38 @@ class FakeStatement implements D1PreparedStatement {
   }
 
   async all<T>(): Promise<{ results?: T[] }> {
+    if (/FROM earnings_events e/i.test(this.sql)) {
+      const from = String(this.values[0]);
+      const to = String(this.values[1]);
+      return {
+        results: [...this.db.table("earnings_events").values()]
+          .filter((event) => String(event.report_date) >= from && String(event.report_date) <= to)
+          .flatMap((event) => {
+            const facts = [...this.db.table("event_facts").values()]
+              .filter((fact) => fact.event_id === event.event_id
+                && ["calendar_presence", "revenue_actual", "revenue_estimate", "eps_actual", "eps_estimate"].includes(String(fact.metric)));
+            return facts.map((fact) => {
+              const source = fact.source_ref_id
+                ? this.db.table("source_refs").get(String(fact.source_ref_id))
+                : undefined;
+              return {
+                ...event,
+                metric: fact.metric,
+                value_number: fact.value_number,
+                fact_version: fact.fact_version,
+                source_ref_id: fact.source_ref_id,
+                provider: source?.provider ?? null,
+                capability: source?.capability ?? null,
+                execution_id: source?.execution_id ?? null,
+                title: source?.title ?? null,
+                url: source?.url ?? null,
+                published_at: source?.published_at ?? null,
+                retrieved_at: source?.retrieved_at ?? null,
+              };
+            });
+          }) as T[],
+      };
+    }
     if (/FROM event_facts ef/i.test(this.sql)) {
       return {
         results: [...this.db.table("event_facts").values()]
