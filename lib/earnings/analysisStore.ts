@@ -71,6 +71,7 @@ interface StoredCalendarRow extends Omit<StoredEstimateRow, "metric" | "value_nu
   timing: EarningsEvent["timing"];
   status: EarningsEvent["status"];
   event_version: number;
+  last_seen_at: string;
 }
 
 interface StoredCalendarGroup {
@@ -212,7 +213,7 @@ export async function getStoredEventEstimates(event: EarningsEvent): Promise<{ e
   }
 }
 
-export async function getStoredCalendarSnapshot(from: string, to: string): Promise<{ events: EarningsEvent[]; sources: SourceRef[] }> {
+export async function getStoredCalendarSnapshot(from: string, to: string): Promise<{ events: EarningsEvent[]; sources: SourceRef[]; latestSeenAt?: string }> {
   const db = getD1();
   if (!db) return { events: [], sources: [] };
 
@@ -220,6 +221,7 @@ export async function getStoredCalendarSnapshot(from: string, to: string): Promi
     const { results = [] } = await db.prepare(
       `SELECT e.event_id, e.canonical_key, e.ticker, e.fiscal_year, e.fiscal_period,
               e.report_date, e.timing, e.status, e.event_version,
+              e.last_seen_at,
               ef.metric, ef.value_number, ef.fact_version,
               sr.source_ref_id, sr.provider, sr.capability, sr.execution_id,
               sr.title, sr.url, sr.published_at, sr.retrieved_at
@@ -267,7 +269,14 @@ export async function getStoredCalendarSnapshot(from: string, to: string): Promi
         sourceIds,
       });
     }
-    return { events, sources: [...sources.values()] };
+    return {
+      events,
+      sources: [...sources.values()],
+      latestSeenAt: events.length
+        ? [...latest.values()].reduce((latestSeenAt, group) =>
+            group.row.last_seen_at > latestSeenAt ? group.row.last_seen_at : latestSeenAt, "")
+        : undefined,
+    };
   } catch (error) {
     if (isProductionRuntime()) {
       throw isD1PersistenceError(error)

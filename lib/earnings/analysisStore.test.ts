@@ -154,6 +154,7 @@ test("calendar snapshots preserve non-empty estimates when a later response omit
   assert.equal(calendar.events[0]?.revenueEstimate, 36_923_508_824);
   assert.equal(calendar.events[0]?.epsEstimate, 21.4019);
   assert.equal(calendar.sources.length, 1);
+  assert.ok(calendar.latestSeenAt && Number.isFinite(Date.parse(calendar.latestSeenAt)));
 });
 
 test("same fiscal quarter date revisions persist as separate event versions", async () => {
